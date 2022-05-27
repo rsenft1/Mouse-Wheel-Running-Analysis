@@ -1,3 +1,10 @@
+# data and output folders (to protect the lab's data)
+data/
+results/
+figs/
+doc/
+
+
 # History files
 .Rhistory
 .Rapp.history
