@@ -1,0 +1,449 @@
+---
+title: "R Wheel Running Analysis"
+output: 
+  html_notebook:
+    theme: cerulean
+    toc: true
+    toc_float: 
+      collapsed: false
+---
+
+## Welcome!
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook built to help you analyze .log files from mouse wheel running experiments. 
+
+### How to use this notebook: 
+
+When you execute code within the notebook, the results appear beneath the code. You can run code chunks one by one by clicking the *Run* button in the upper right corner of the chunk or by placing your cursor the code chunk and pressing *Ctrl+Shift+Enter*. To run all code chunks, you can *Ctrl+Alt+R* or hit the Run button and select "Run All" or "Restart R and Run all."
+
+### `r emo::ji("books")` Setup Libraries 
+
+This code block loads necessary libraries and sets up the directory structure necessary for the project. You need to run it, but it is not included in your output notebook.
+
+```{r libraries, echo=FALSE}
+
+# Load necessary libraries
+
+## This package-checking chunk of code is from vikram: https://vbaliga.github.io/verify-that-r-packages-are-installed-and-loaded/
+packages = c("tidyr", "here", "ggplot2", "grid", "stringr", "matrixStats", "reshape2", "logr", "dplyr", "vroom", "fs", "progress", "crayon", "devtools", "data.table", "behavr", "ggetho", "sleepr", "zeitgebr")
+devtools::install_github("hadley/emo")
+
+## Now load or install&load all
+package.check <- lapply(
+  packages,
+  FUN = function(x) {
+    if (!require(x, character.only = TRUE)) {
+      install.packages(x, dependencies = TRUE)
+      library(x, character.only = TRUE)
+    }
+  }
+)
+
+#This code can be used to update all your packages: 
+# update.packages(ask = FALSE)
+
+cat(emo::ji("white_heavy_check_mark"), length((.packages())), "packages loaded")
+```
+
+### `r emo::ji("gear")` Options for analysis -- <span style="color: red;">USER INPUT REQUIRED</span> 
+
+* Select your options for your analysis in the code below. T for True, F for False.
+
+```{r options, echo=F}
+expName <- "Exp1"           # Name for your experiment, include no spaces, just letters, numbers, and underscores
+TrimDays <- F               # Do you want to trim a number of days from the beginning of the dataset? (valid values are F (FALSE) or a number (e.g., 3) )  
+AlignMultipleDatasets <- F  # Are you aligning multiple datasets from different experiments
+headerLength <- 7           # Number of lines for header
+fixHeader <- T              # whether to remove everything after : in each line of the header
+lightsOnTime <- 7           # Time lights come ON. Default 7 = 7 AM
+lightsOffTime <- 19         # Time lights go OFF. Default 19 = 7 PM
+timeChange <- T             # Was there a time change in this experiment? Default = False, no time change
+
+
+#If you have a time change:
+dayOfChange <- 7            # What experimental day the change occurs on (First day of experiment is Day 1)
+newlightsOnTime <- 12          # If you have a time change, what is the new lights ON time?
+newlightsOffTime <- 19         # If you have a time change, what is the new lights OFF time?
+
+#How is your header organized? 
+header <- c('MouseName', 'Date', 'StartTime', 'unknown', 'CageNum', 'Genotype', 'Sex')
+
+#output the settings 
+
+cat("Settings: \n", 
+    str_pad(paste("Experiment name",emo::ji("ID button"),":"), 22, "left"),  expName, "\n",
+    str_pad(paste("Trim Days",emo::ji("scissors"),":"), 22, "left"),  TrimDays, "\n",
+    str_pad(paste("Align 2+ datasets",emo::ji("puzzle"),":"), 22, "left"),  AlignMultipleDatasets, "\n",
+    str_pad(paste("Header length",emo::ji("straight_ruler"),":"), 22, "left"),  headerLength, "\n",
+    str_pad(paste("Lights On",emo::ji("sun"),":"), 22, "left"),  lightsOnTime, "\n",
+    str_pad(paste("Lights Off",emo::ji("waxing_crescent_moon"),":"), 22, "left"),  lightsOffTime, "\n",
+    str_pad(paste("Time change?",emo::ji("alarm_clock"),":"), 22, "left"),  timeChange, "\n\n")
+
+if(timeChange){
+  cat("Time change settings:", emo::ji("alarm_clock"), "\n", 
+      str_pad(paste("Lights ON", emo::ji("sun"), ":"), 22, "left"), str_pad(lightsOnTime, 2, "right"), emo::ji("right_arrow"), newlightsOnTime, "\n",
+      str_pad(paste("Lights OFF", emo::ji("waxing_crescent_moon"), ":"), 22, "left"), str_pad(lightsOffTime, 2, "right"), emo::ji("right_arrow"), newlightsOffTime)
+}
+```
+
+### `r emo::ji("directory")` Make directory structure for the project 
+
+```{r make_dirs, echo=FALSE}
+options(crayon.enabled = TRUE)
+## Make directories
+dir_scripts <- here("scripts")                          #where the scripts are
+dir_rawData <- here("data", "01_Raw_data")              #where the raw data is
+dir_orgData <- here("data", "02_Organized_data")        #where the organized data is
+dir_data_clean <- here("data", "03_Clean_data")         #where the cleaned data is
+dir_data_indSpeed <- here(dir_data_clean, "01_IndSpeed")
+dir_data_AvgSpeedPerDay <- here(dir_data_clean, "02_AvgSpeedPerDay")
+dir_data_PercentRunningPerDay <- here(dir_data_clean, "03_PercentRunningPerDay")
+figDir <- here("figs")
+resultsDir <- here("results")
+hourlyResultsDir <- here(resultsDir, "Hourly_data")
+docDir <- here("doc")
+for(d in list(figDir, resultsDir, hourlyResultsDir, docDir, dir_data_clean, dir_rawData, dir_orgData, dir_data_AvgSpeedPerDay, dir_data_PercentRunningPerDay, dir_data_indSpeed))if(!dir.exists(d)){dir.create(d)}
+options(stringsAsFactors=FALSE)
+
+#open the script log: 
+logpath <- here(docDir, "log.txt")
+lf <- log_open(logpath, show_notes = T, autolog = T)
+log_print(sessionInfo(), console = F)
+cat("\n", emo::ji("white_heavy_check_mark"), "Made folder structure here:",emo::ji("open_file_folder"), here())
+```
+
+### `r emo::ji("broom")` Organize, Load, and Clean Data
+
+```{r LoadData, results=FALSE, collapse=TRUE}
+## organize .log files into 1 folder per animal
+
+source(here(dir_scripts, "01_organize_data_files.R")) 
+
+## read data into R
+
+mouseNames <- list.dirs(dir_orgData, full.names = F)[-1]
+nMice <- length(mouseNames)
+miceIds <- paste0("M", seq(1, nMice))
+
+## This gets basic running data for each mouse
+metadata <- data.frame(matrix(NA_character_, nrow = headerLength, ncol = nMice))
+names(metadata) <- miceIds
+pb <- progress_bar$new(total=nMice)
+idx <- 1
+for (mouse in mouseNames){
+  files <- fs::dir_ls(dir_orgData, glob = paste0("*", mouse,"*log"), recurse=T)
+  df <- vroom(files, delim="/t", col_names="raw", skip=headerLength, show_col_types = FALSE)
+  metadata[idx] <- vroom(files[1], delim="/t", col_names=mouse, n_max=headerLength, show_col_types = FALSE)
+  assign(mouse, df)
+  pb$tick()
+  idx <- idx+1
+}
+#Fix metadata table
+metadata <- transpose(metadata)
+colnames(metadata) <- header
+#For each column in metadata, keep only the string after ": ", no change of there's no ": " To deal with style of output on second Pi
+metadata <- metadata %>% mutate_all(~sub(".*: ", "", .))
+
+metadata <- metadata %>% mutate(id = paste(MouseName, expName, sep="|"))
+
+cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished loading ',nMice,' log files ')), emo::ji("mouse"))
+```
+
+### `r emo::ji("input_numbers")` Add columnns to data 
+
+```{r Check start time}
+## Now we want to append speed, time, other info for each mouse
+
+# If experiment has multiple start times, warn user (alignment isn't functional yet)
+startTimes <- unique(metadata$StartTime)
+if(length(startTimes)>1){
+  cat(emo::ji("alarm_clock"), white$bgRed$bold(' WARNING: multiple start times: '),white$bgRed$bold(startTimes), " ")
+}else{
+  cat(emo::ji("alarm_clock"), white$bgBlue$bold(paste0(' Experiment start time: ',startTimes, " ")))
+}
+```
+
+```{r Add columns to data, include=FALSE}
+#Source functions
+
+pb <- progress_bar$new(total=nMice)
+for (mouse in mouseNames){
+  df <- get(mouse)
+  df <- addSpeedTime(df)
+  df <- addHoursActive(df, startTimes)
+  if(timeChange){
+    df <- addTimeChange(df, dayofChange = dayOfChange, binSize=10, newlightsOnTime=newlightsOnTime, newlightsOffTime= newlightsOffTime, oldlightsOnTime = lightsOnTime, oldlightsOffTime=lightsOffTime)
+  }
+  df$id <- paste(mouse, expName, sep="|")
+  assign(mouse, df)
+  pb$tick()
+  cat("\n")
+}
+
+cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished adding data for ',nMice,' mice ')), emo::ji("mouse"))
+
+```
+
+### `r emo::ji("floppy")` Save tables 
+
+```{r Save tables of hourly data}
+#Save Metadata table
+write.csv(metadata, file=here(resultsDir, "exp_metdata.csv"))
+
+#Save hourly data for every mouse
+pb <- progress_bar$new(total=nMice)
+for (mouse in mouseNames){
+  df <- get(mouse)
+  df <- df %>% dplyr::group_by(expDay, expHour, hour, activeFactor) %>% dplyr::summarize(avg_speed = mean(speed))
+  assign(paste0(mouse,"_hourly"), df)
+  filename <- paste0(mouse,"_hourly.csv")
+  write.csv(df, file=here(resultsDir,"Hourly_data", filename), row.names = F)
+  pb$tick()
+}
+cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished summarizing hourly data for ',nMice,' mice ')), emo::ji("mouse"))
+
+```
+```{r}
+filteredData <- C676 %>%  filter(as.integer(expDay)>3 & as.integer(expDay)<10)
+acf_oject <- acf(x=filteredData$speed, lag.max=360000)
+
+#plain
+ss=868
+FF = abs(fft(C676_hourly$avg_speed)/sqrt(ss))^2
+P = (4/ss)*FF[1:65] # Only need the first (n/2)+1 values of the FFT result.
+f = (0:64)/ss # this creates harmonic frequencies from 0 to .5 in steps of 1/128.
+plot(f, P, type="l") # This plots the periodogram; type = “l” creates a line plot. Note: l is lowercase L, not number 1.
+
+
+
+#ggetho
+#column for before/after switch
+#column for whether active (above some threshold - 0 or howmany spins per 10 seconds)
+```
+
+
+```{r behavr table}
+data <- rbind(C676, C678, C679, C680, C707, C708, C709, C710, C711) %>%  filter(as.integer(expDay)>7 & as.integer(expDay)<30)
+#data$MouseName = "C676"
+data <- data.table(data)
+
+met <- data.table(metadata)
+setkey(met, id)
+setkey(data, id)
+#data[,t := time*86400] #convert to # of seconds rather than # of days
+#need to convert t so 0 is the start of the light cycle (aka 7 AM). We do this by setting the previous 7 AM to 0 and counting seconds up from there through the experiment
+dt <- behavr(data, met)
+summary(dt)
+
+
+
+ggetho(dt, aes(z=speed), timewrap = behavr::hours(12)) +
+      stat_tile_etho() +
+      stat_ld_annotations() +
+            # on top of it, a second layer that
+            # starts at day 7 thoughout day 30,
+            # and where L colour is grey
+            stat_ld_annotations(x_limits = behavr::days(c(7,30)),
+                                ld_colours = c("grey", "black"), l_duration=behavr::hours(5))
+
+ggetho(dt, aes(y=speed, color=Genotype), time_wrap = behavr::hours(24)) +
+      stat_pop_etho() +
+      stat_ld_annotations() +
+            # on top of it, a second layer that
+            # starts at day 7 thoughout day 30,
+            # and where L colour is grey
+      stat_ld_annotations(x_limits = behavr::days(c(7,30)),
+                                ld_colours = c("grey", "black"), l_duration=behavr::hours(5))
+
+ggetho(dt, aes(y=speed, color=Genotype)) +
+      stat_pop_etho() +
+      stat_ld_annotations() +
+            # on top of it, a second layer that
+            # starts at day 7 thoughout day 30,
+            # and where L colour is grey
+            stat_ld_annotations(x_limits = behavr::days(c(7,30)),
+                                ld_colours = c("grey", "black"), l_duration=behavr::hours(5))
+ggetho(dt,
+              aes(z = speed),
+              multiplot = 2,
+              multiplot_period = behavr::hours(24))+
+        stat_bar_tile_etho()+
+      stat_ld_annotations() +
+            # on top of it, a second layer that
+            # starts at day 7 thoughout day 30,
+            # and where L colour is grey
+            stat_ld_annotations(x_limits = behavr::days(c(1,2)),
+                                ld_colours = c("grey", "black"), l_duration=behavr::hours(5))
+
+ggetho(dt, aes(z = speed), multiplot = 2, multiplot_period = behavr::hours(24))+
+  stat_bar_tile_etho()+
+  stat_ld_annotations() +
+  stat_ld_annotations(x_limits = behavr::days(c(1,2)),
+                                ld_colours = c("grey", "black"), l_duration=behavr::hours(5))+
+  facet_wrap( ~ Genotype + id, ncol=3, labeller = label_wrap_gen(multi_line=FALSE))
+```
+
+
+```{r PERIODOGRAM}
+
+per_xsq_dt <- periodogram(speed, 
+                        dt,
+                        FUN = chi_sq_periodogram)
+per_xsq_dt <- find_peaks(per_xsq_dt)
+ggperio(per_xsq_dt) + geom_line(aes(group = id, color=Genotype))
+ggperio(per_xsq_dt, aes(
+                  y = power - signif_threshold,
+                  color=Genotype)) + 
+                  stat_pop_etho()
+
+```
+
+
+```{r functions}
+
+
+addSpeedTime <- function(df, binSize=10){ # binSize in seconds
+  # conversion factor for meter/min
+  df <- df %>% mutate(speed = raw*2*pi*0.0625 *60) # not bin size dependent 	
+  
+  # create time bins time expressed in days
+  df <- df %>% mutate(time = (1:length(speed)) / 3600 * binSize / 24) # 10 sec bins, time in days
+  
+  df$expDay <-  factor(ceiling(df$time))
+  return(df)
+}
+
+addHoursActive <- function(df, myTime, binSize=10, lightsOnTime=7, lightsOffTime= 19){
+  #now add in time information
+  #Current time
+  currentHour <- as.numeric(substring(myTime,1,2))
+  currentExpHour <- 1
+  currentMinute <- as.numeric(substring(myTime,4,5))
+  currentSeconds <- behavr::hours(currentHour)+60*currentMinute
+  nRows <- length(df$time)
+  #initialize variables that will be hours and whether it's the animal's active cycle
+  Hours <- replicate(nRows,0)
+  expHours <- replicate(nRows,0)
+  activeFactor <- replicate(nRows,0)
+  t <- seq(currentSeconds-behavr::hours(lightsOnTime), nRows*10+currentSeconds-10-behavr::hours(lightsOnTime), by=10)
+  minute <- 60/binSize #num of entries for each minute
+  byMin <- seq(from=1,to=nRows, by=60/binSize)
+  for (k in byMin){
+    Hours[k:(k+minute-1)] <- currentHour
+    expHours[k:(k+minute-1)] <- currentExpHour
+    currentMinute <- currentMinute+1
+    currentMinute <- currentMinute%%60
+    if (currentMinute==0){
+      currentHour <- currentHour+1
+      currentExpHour <- currentExpHour+1
+    }
+    currentHour <- currentHour%%24
+  }
+  #add hours to df
+  Hours <- head(Hours, nRows) #fix extra entries added at the end by going in minutes
+  expHours <- head(expHours, nRows) #fix extra entries added at the end by going in minute
+  df$hour <- Hours
+  df$expHour <- expHours
+  for (h in 1:length(Hours)){
+    if ((lightsOnTime <= Hours[h])&(Hours[h]< lightsOffTime)){
+      activeFactor[h] <- FALSE
+    }
+    else{
+      activeFactor[h] <- TRUE
+    }
+  }
+  #add active factor to df
+  df$activeFactor <- activeFactor
+  
+  #add t for behavr
+  df$t <- t
+  return (df)
+}
+addTimeChange <- function(df, dayofChange, binSize=10, newlightsOnTime=newlightsOnTime, newlightsOffTime= newlightsOffTime, oldlightsOnTime = lightsOnTime, oldlightsOffTime=lightsOffTime){
+  print("timechange")
+  #Assumes the time change was made during the LIGHT cycle
+  #now add in time information for the cycle change. default to short photoperiod
+  Hours <- df$hour
+  startHour <- df$hour[1]
+  activeFactor <- df$activeFactor
+  day <- df$expDay
+  activeStart<- FALSE
+  for (h in 1:length(Hours)){
+    if (as.numeric(day[h])==dayofChange){
+      if (Hours[h]==newlightsOffTime){ #if lights are on
+        activeStart <- TRUE
+      }
+      if ((Hours[h]>=newlightsOffTime)&(Hours[h]<oldlightsOffTime)){ #if lights are off
+        activeFactor[h] <- activeStart       
+      }
+    }
+    else if (as.numeric(day[h])>dayofChange){
+      if ((newlightsOnTime <= Hours[h])&(Hours[h]< newlightsOffTime)){
+        activeFactor[h] <- FALSE
+      }
+      else{
+        activeFactor[h] <- TRUE
+      }
+    }
+  }
+  #update active factor in df
+  df$activeFactor <- activeFactor
+  # update t for behavr, 0= “ZT0 of the transition day”
+  # df <- df %>% mutate(t = t-behavr::days(dayofChange))
+  return (df)
+}
+
+#4. function to get boundaries of on/off light cycle
+#MUST ADD SOMETHING TO BE ABLE TO MODIFY LIGHT CYCLE PARTWAY THROUGH AN EXPERIMENT
+getlightCycle <- function(df){
+  #use activeFactor to found boundaries for graphing output later:
+  activeInfo <- rle(df$activeFactor)
+  activeLengths <- unlist(activeInfo[1])
+  whichCycle <- unlist(activeInfo[2])
+  cycleBorders <- cumsum(activeLengths)
+  activeStart <- cycleBorders[whichCycle==0]+1 # 1 after the inactive cycle ends
+  activeEnd <- cycleBorders[whichCycle==1]
+  #plot.data <- data.frame(start.points=lightsOff, end.points=lightsOn)
+  if(whichCycle[1]==1){ #if we start in the active cycle
+    activeStart <- append(0,activeStart) #first start should be beginning of the recording
+  }
+  if(whichCycle[length(whichCycle)]==0){ #if we end in the light cycle
+    activeStart <- head(activeStart,-1) #remove the last 'start' which will be the last time point
+  }
+  plot.data <- data.frame(start.points=activeStart, end.points=activeEnd)
+}
+
+```
+
+
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. You can save the preview by opening it in a browser (button at upper left when you open a preview), then printing to PDF. It's a nice way to save the output of your analysis. 
+
+```{css, echo=FALSE}
+.tocify .tocify-header {
+    position: fixed;
+    top: 50px;
+    left: 50px;
+    width: 400px;
+    height: 800px;
+}
+p {
+  margin-bottom: 25px;
+}
+h1{
+  color: #FD3E81;
+}
+h2{
+  color: #007991;
+}
+h3 {
+  margin-top: 50px;
+  color: #70B77E;
+}
+.list-group-item.active, .list-group-item.active:focus, .list-group-item.active:hover {
+    background-color: #07004D;
+    border-color: #337ab7;
+}
+```
