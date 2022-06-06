@@ -26,7 +26,6 @@ This code block loads necessary libraries and sets up the directory structure ne
 
 ## This package-checking chunk of code is from vikram: https://vbaliga.github.io/verify-that-r-packages-are-installed-and-loaded/
 packages = c("tidyr", "here", "ggplot2", "grid", "stringr", "matrixStats", "reshape2", "logr", "dplyr", "vroom", "fs", "progress", "crayon", "devtools", "data.table", "behavr", "ggetho", "sleepr", "zeitgebr")
-devtools::install_github("hadley/emo")
 
 ## Now load or install&load all
 package.check <- lapply(
@@ -38,11 +37,12 @@ package.check <- lapply(
     }
   }
 )
+devtools::install_github("hadley/emo")
 
 #This code can be used to update all your packages: 
 # update.packages(ask = FALSE)
 
-cat(emo::ji("white_heavy_check_mark"), length((.packages())), "packages loaded")
+cat("\n", emo::ji("white_heavy_check_mark"), length((.packages())), "packages loaded")
 ```
 
 ### `r emo::ji("gear")` Options for analysis -- <span style="color: red;">USER INPUT REQUIRED</span> 
@@ -54,14 +54,13 @@ expName <- "Exp1"           # Name for your experiment, include no spaces, just 
 TrimDays <- F               # Do you want to trim a number of days from the beginning of the dataset? (valid values are F (FALSE) or a number (e.g., 3) )  
 AlignMultipleDatasets <- F  # Are you aligning multiple datasets from different experiments
 headerLength <- 7           # Number of lines for header
-fixHeader <- T              # whether to remove everything after : in each line of the header
 lightsOnTime <- 7           # Time lights come ON. Default 7 = 7 AM
 lightsOffTime <- 19         # Time lights go OFF. Default 19 = 7 PM
 timeChange <- T             # Was there a time change in this experiment? Default = False, no time change
 
 
 #If you have a time change:
-dayOfChange <- 7            # What experimental day the change occurs on (First day of experiment is Day 1)
+dayOfChange <- 14            # What experimental day the change occurs on (First day of experiment is Day 1)
 newlightsOnTime <- 12          # If you have a time change, what is the new lights ON time?
 newlightsOffTime <- 19         # If you have a time change, what is the new lights OFF time?
 
@@ -141,6 +140,7 @@ for (mouse in mouseNames){
 #Fix metadata table
 metadata <- transpose(metadata)
 colnames(metadata) <- header
+
 #For each column in metadata, keep only the string after ": ", no change of there's no ": " To deal with style of output on second Pi
 metadata <- metadata %>% mutate_all(~sub(".*: ", "", .))
 
@@ -203,7 +203,10 @@ for (mouse in mouseNames){
 cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished summarizing hourly data for ',nMice,' mice ')), emo::ji("mouse"))
 
 ```
-```{r}
+
+### `r emo::ji("chart_increasing")` Make graphs 
+
+```{r obsolete}
 filteredData <- C676 %>%  filter(as.integer(expDay)>3 & as.integer(expDay)<10)
 acf_oject <- acf(x=filteredData$speed, lag.max=360000)
 
@@ -222,10 +225,10 @@ plot(f, P, type="l") # This plots the periodogram; type = “l” creates a line
 ```
 
 
-```{r behavr table}
-data <- rbind(C676, C678, C679, C680, C707, C708, C709, C710, C711) %>%  filter(as.integer(expDay)>7 & as.integer(expDay)<30)
-#data$MouseName = "C676"
-data <- data.table(data)
+```{r behavr table, fig.width=20}
+startDay <- 5
+endDay <- 30
+data <- data.table::rbindlist(mget(mouseNames)) %>%  dplyr::filter(as.integer(expDay)>startDay & as.integer(expDay)<=endDay)
 
 met <- data.table(metadata)
 setkey(met, id)
@@ -237,13 +240,14 @@ summary(dt)
 
 
 
-ggetho(dt, aes(z=speed), timewrap = behavr::hours(12)) +
+ggetho(dt, aes(z=speed), timewrap = behavr::hours(24)) +
+      scale_y_discrete(expand=expansion(add = c(1.4)))+
       stat_tile_etho() +
       stat_ld_annotations() +
             # on top of it, a second layer that
             # starts at day 7 thoughout day 30,
             # and where L colour is grey
-            stat_ld_annotations(x_limits = behavr::days(c(7,30)),
+            stat_ld_annotations(x_limits = behavr::days(c(14,30)),
                                 ld_colours = c("grey", "black"), l_duration=behavr::hours(5))
 
 ggetho(dt, aes(y=speed, color=Genotype), time_wrap = behavr::hours(24)) +
@@ -252,7 +256,7 @@ ggetho(dt, aes(y=speed, color=Genotype), time_wrap = behavr::hours(24)) +
             # on top of it, a second layer that
             # starts at day 7 thoughout day 30,
             # and where L colour is grey
-      stat_ld_annotations(x_limits = behavr::days(c(7,30)),
+      stat_ld_annotations(x_limits = behavr::days(c(14,30)),
                                 ld_colours = c("grey", "black"), l_duration=behavr::hours(5))
 
 ggetho(dt, aes(y=speed, color=Genotype)) +
@@ -261,7 +265,7 @@ ggetho(dt, aes(y=speed, color=Genotype)) +
             # on top of it, a second layer that
             # starts at day 7 thoughout day 30,
             # and where L colour is grey
-            stat_ld_annotations(x_limits = behavr::days(c(7,30)),
+            stat_ld_annotations(x_limits = behavr::days(c(14,30)),
                                 ld_colours = c("grey", "black"), l_duration=behavr::hours(5))
 ggetho(dt,
               aes(z = speed),
@@ -270,17 +274,29 @@ ggetho(dt,
         stat_bar_tile_etho()+
       stat_ld_annotations() +
             # on top of it, a second layer that
-            # starts at day 7 thoughout day 30,
+            # starts at day 14 thoughout day 30,
             # and where L colour is grey
             stat_ld_annotations(x_limits = behavr::days(c(1,2)),
                                 ld_colours = c("grey", "black"), l_duration=behavr::hours(5))
 
-ggetho(dt, aes(z = speed), multiplot = 2, multiplot_period = behavr::hours(24))+
+p <- ggetho(dt, aes(z = speed), multiplot = 2, multiplot_period = behavr::hours(24))+
   stat_bar_tile_etho()+
   stat_ld_annotations() +
   stat_ld_annotations(x_limits = behavr::days(c(1,2)),
                                 ld_colours = c("grey", "black"), l_duration=behavr::hours(5))+
-  facet_wrap( ~ Genotype + id, ncol=3, labeller = label_wrap_gen(multi_line=FALSE))
+
+  facet_wrap( ~ Genotype + MouseName, ncol=4, labeller = label_wrap_gen(multi_line=FALSE))
+
+p+scale_y_discrete(labels=rev(everyThird(seq(startDay-1, endDay-1))))+
+  geom_hline(yintercept=intercept, color="tomato", linetype="solid")+
+
+everyThird <- function(x){
+  x[seq(2, length(x), 3)] <- ""
+  x[seq(3, length(x), 3)] <- ""
+  x
+}
+intercept <- endDay-dayOfChange-0.5
+
 ```
 
 
