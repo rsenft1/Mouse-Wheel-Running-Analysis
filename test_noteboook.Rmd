@@ -65,7 +65,7 @@ newlightsOnTime <- 12          # If you have a time change, what is the new ligh
 newlightsOffTime <- 19         # If you have a time change, what is the new lights OFF time?
 
 #How is your header organized? 
-header <- c('MouseName', 'Date', 'StartTime', 'unknown', 'CageNum', 'Genotype', 'Sex')
+header <- c('MouseName', 'Date', 'StartTime', 'bin_secs', 'CageNum', 'Genotype', 'Sex')
 
 #output the settings 
 
@@ -122,11 +122,10 @@ source(here(dir_scripts, "01_organize_data_files.R"))
 
 mouseNames <- list.dirs(dir_orgData, full.names = F)[-1]
 nMice <- length(mouseNames)
-miceIds <- paste0("M", seq(1, nMice))
 
 ## This gets basic running data for each mouse
 metadata <- data.frame(matrix(NA_character_, nrow = headerLength, ncol = nMice))
-names(metadata) <- miceIds
+
 pb <- progress_bar$new(total=nMice)
 idx <- 1
 for (mouse in mouseNames){
@@ -143,9 +142,10 @@ colnames(metadata) <- header
 
 #For each column in metadata, keep only the string after ": ", no change of there's no ": " To deal with style of output on second Pi
 metadata <- metadata %>% mutate_all(~sub(".*: ", "", .))
-
+#make the id for each mouse
 metadata <- metadata %>% mutate(id = paste(MouseName, expName, sep="|"))
-
+#make metadata into a data table
+metadata <- data.table(metadata)
 cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished loading ',nMice,' log files ')), emo::ji("mouse"))
 ```
 
@@ -225,20 +225,44 @@ plot(f, P, type="l") # This plots the periodogram; type = “l” creates a line
 ```
 
 
-```{r behavr table, fig.width=20}
+```{r behavr table}
+
+#Pick days to build graph over
 startDay <- 5
 endDay <- 30
-data <- data.table::rbindlist(mget(mouseNames)) %>%  dplyr::filter(as.integer(expDay)>startDay & as.integer(expDay)<=endDay)
 
-met <- data.table(metadata)
-setkey(met, id)
+#make behavr table
+data <- data.table::rbindlist(mget(mouseNames)) %>%  dplyr::filter(t>behavr::days(startDay) & t<=behavr::days(endDay))
+setkey(metadata, id)
 setkey(data, id)
-#data[,t := time*86400] #convert to # of seconds rather than # of days
-#need to convert t so 0 is the start of the light cycle (aka 7 AM). We do this by setting the previous 7 AM to 0 and counting seconds up from there through the experiment
-dt <- behavr(data, met)
+dt <- behavr(data, metadata)
 summary(dt)
+metadata
+```
 
+```{r graph1, fig.width=20}
+dt[, moving:= speed>0]
 
+bout_dt <- sleepr::bout_analysis(moving, dt)
+bout_dt <- bout_dt[moving == TRUE, -"moving"]
+
+ggetho(bout_dt, aes(y=duration / 60, colour=Genotype), time_wrap = hours(24)) + 
+      stat_pop_etho() + 
+      facet_grid(Sex ~ .) +
+      scale_y_continuous(name= "Bout length (min)")
+
+stat_bout <- bout_dt[,
+        .(n_bouts = .N,
+          mean_bout_length = mean(duration)),
+        by=id]
+
+new_meta <- dt[stat_bout, meta=T]
+# set new metadata
+setmeta(dt, new_meta)
+head(dt[meta=T])
+```
+
+```{r}
 
 ggetho(dt, aes(z=speed), timewrap = behavr::hours(24)) +
       scale_y_discrete(expand=expansion(add = c(1.4)))+
