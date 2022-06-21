@@ -60,8 +60,8 @@ timeChange <- T             # Was there a time change in this experiment? Defaul
 
 #If you have a time change:
 dayOfChange <- 14            # What experimental day the change occurs on (First day of experiment is Day 1)
-newlightsOnTime <- 12          # If you have a time change, what is the new lights ON time?
-newlightsOffTime <- 19         # If you have a time change, what is the new lights OFF time?
+newlightsOnTime <- 7          # If you have a time change, what is the new lights ON time?
+newlightsOffTime <- 12         # If you have a time change, what is the new lights OFF time?
 
 #How is your header organized? 
 header <- c('MouseName', 'Date', 'StartTime', 'bin_secs', 'CageNum', 'Genotype', 'Sex')
@@ -374,7 +374,7 @@ addHoursActive <- function(mouseName, metadata, binSize=10, lightsOnTime=7, ligh
   df <- df %>% mutate(expDay = ceiling((t+behavr::hours(lightsOnTime)+10)/behavr::days(1)))
   df <- df %>% mutate(hour = floor((t2)/behavr::hours(1)) %% 24)
 
-  activeFactor <- rep(makeDayActivityWrapper(lightsOnTime, lightsOffTime, startHour=currentHour), ceiling(max(df$expDay)))[seq(1,length(df$raw))]
+  activeFactor <- rep(makeDayActivityWrapper(lightsOnTime, lightsOffTime, startSecs=t[1]), ceiling(max(df$expDay)))[seq(1,length(df$raw))]
   #add active factor to df
   df$activeFactor <- activeFactor
   
@@ -383,24 +383,36 @@ addHoursActive <- function(mouseName, metadata, binSize=10, lightsOnTime=7, ligh
   return (df)
 }
 
-makeDayActivityWrapper <- function(lightsOn, lightsOff, startSecs, binSize=10){
+makeDayActivityWrapper <- function(lightsOn, lightsOff, startSecs, originalLightsOn=7, binSize=10){
   #lightsOn = hour lights come on, relative to midnight = 0
   #lightsOff = hour lights go off, relative to midnight = 0
   #binSize = length of time between measurements, in seconds
   #startSecs = starting time for recording data, in seconds
-  startHour <- floor(startSecs/behavr::hours(1))
-  durationLight <- abs(lightsOn-lightsOff)
-  if(startHour < durationLight){
-    start <- F #lights are on so we start inactive
+  print(startSecs)
+  startHour <- startSecs/behavr::hours(1)+originalLightsOn # Start time in hrs
+  print(startHour)
+  if(min(lightsOn, lightsOff)==lightsOn){
+    if(0 < lightsOn){
+      start <- T
+    }else{
+      print("start is false")
+      start <- F
+      }
   }
-  else(start <- T)
+  if(min(lightsOn, lightsOff)==lightsOff){
+    if(0 < lightsOff){
+      start <- F
+    }else
+      {start <- T}
+  }
+  print(start)
   first <- min(lightsOn, lightsOff)
   second <- abs(lightsOn-lightsOff)
   third <- 24 - sum(first, second)
-  makeDayActivity(hours=c(first, second, third), start=start, binSize=binSize)
+  makeDayActivity(hours=c(first, second, third), start=start, startSecs=startSecs+behavr::hours(originalLightsOn), binSize=binSize)
 }
 
-makeDayActivity <- function(hours, start=T, binSize=10){
+makeDayActivity <- function(hours, startSecs, start=T, binSize=10){
   #hours = vector of hours alternating active and inactive (e.g., c(7, 12, 5))
   #start = whether to start the day (midnight) in the active or inactive state, T=start active
   #binSize = length of time between measurements, in seconds
@@ -415,25 +427,23 @@ makeDayActivity <- function(hours, start=T, binSize=10){
     activeState <- !activeState
   }
   myDay <- rep(myDay, 2) #double up the day
-  start <- df$t[1]/binSize #in seconds
-  myDay<- myDay[seq(start, start+behavr::days(1))]
+  start <- startSecs/binSize+1 # Start time in hrs
+
+  #start <- (startSecs/binSize)+1 #get index
+  myDay<- myDay[seq(start, start+(behavr::days(1)/binSize)-1)]
   return(myDay)
 }
 
-addActiveCycle <- function(df, lightsOn=7, lightsOff=19, dayRange=F){
-  #assumes activity in darkness
-  currentHour <- floor(df$t[1]/behavr::hours(1))
-}
 
 addTimeChange <- function(df, dayOfChange, dayChangeEnds = F, binSize=10, newlightsOnTime=newlightsOnTime, newlightsOffTime= newlightsOffTime){
   #binSize = length of time between measurements, in seconds
-  startHour <- df$hour[1]
-  newDay <- makeDayActivityWrapper(newlightsOnTime, newlightsOffTime, startHour=startHour)
+  currentSeconds <- df$t[1]
+  newDay <- makeDayActivityWrapper(newlightsOnTime, newlightsOffTime, startSecs=currentSeconds)
   if(dayChangeEnds==F){
     dayChangeEnds <- max(as.numeric(df$expDay))
   }
   newDays <- rep(newDay, dayChangeEnds-dayofChange)
-  changeTheseTimepoints <- seq(behavr::days(dayofChange)*(1/binSize), behavr::days(dayChangeEnds)*(1/binSize)-1)
+  changeTheseTimepoints <- seq((behavr::days(dayofChange))*(1/binSize)+1, (behavr::days(dayChangeEnds))*(1/binSize)-1)
   if(max(changeTheseTimepoints > nrow(df))){
     #if the timepoints to change extend beyond the number of rows in the dataset, chop off the data
     #this would happen if the last day isn't a full 24 hrs long
