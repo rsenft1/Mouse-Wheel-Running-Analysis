@@ -25,7 +25,7 @@ This code block loads necessary libraries and sets up the directory structure ne
 # Load necessary libraries
 
 ## This package-checking chunk of code is from vikram: https://vbaliga.github.io/verify-that-r-packages-are-installed-and-loaded/
-packages = c("tidyr", "here", "ggplot2", "grid", "stringr", "matrixStats", "reshape2", "logr", "dplyr", "vroom", "fs", "progress", "crayon", "devtools", "data.table", "behavr", "ggetho", "sleepr", "zeitgebr")
+packages = c("tidyr", "here", "grid", "stringr", "matrixStats", "reshape2", "logr", "dplyr", "vroom", "fs", "progress", "crayon", "devtools", "data.table", "ggplot2","behavr", "ggetho", "sleepr", "zeitgebr")
 
 ## Now load or install&load all
 package.check <- lapply(
@@ -52,7 +52,6 @@ cat("\n", emo::ji("white_heavy_check_mark"), length((.packages())), "packages lo
 ```{r options, echo=F}
 expName <- "Exp1"           # Name for your experiment, include no spaces, just letters, numbers, and underscores
 TrimDays <- F               # Do you want to trim a number of days from the beginning of the dataset? (valid values are F (FALSE) or a number (e.g., 3) )  
-AlignMultipleDatasets <- F  # Are you aligning multiple datasets from different experiments
 headerLength <- 7           # Number of lines for header
 lightsOnTime <- 7           # Time lights come ON. Default 7 = 7 AM
 lightsOffTime <- 19         # Time lights go OFF. Default 19 = 7 PM
@@ -72,7 +71,6 @@ header <- c('MouseName', 'Date', 'StartTime', 'bin_secs', 'CageNum', 'Genotype',
 cat("Settings: \n", 
     str_pad(paste("Experiment name",emo::ji("ID button"),":"), 22, "left"),  expName, "\n",
     str_pad(paste("Trim Days",emo::ji("scissors"),":"), 22, "left"),  TrimDays, "\n",
-    str_pad(paste("Align 2+ datasets",emo::ji("puzzle"),":"), 22, "left"),  AlignMultipleDatasets, "\n",
     str_pad(paste("Header length",emo::ji("straight_ruler"),":"), 22, "left"),  headerLength, "\n",
     str_pad(paste("Lights On",emo::ji("sun"),":"), 22, "left"),  lightsOnTime, "\n",
     str_pad(paste("Lights Off",emo::ji("waxing_crescent_moon"),":"), 22, "left"),  lightsOffTime, "\n",
@@ -151,17 +149,6 @@ cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished load
 
 ### `r emo::ji("input_numbers")` Add columnns to data 
 
-```{r Check start time}
-## Now we want to append speed, time, other info for each mouse
-
-# If experiment has multiple start times, warn user (alignment isn't functional yet)
-startTimes <- unique(metadata$StartTime)
-if(length(startTimes)>1){
-  cat(emo::ji("alarm_clock"), white$bgRed$bold(' WARNING: multiple start times: '),white$bgRed$bold(startTimes), " ")
-}else{
-  cat(emo::ji("alarm_clock"), white$bgBlue$bold(paste0(' Experiment start time: ',startTimes, " ")))
-}
-```
 
 ```{r Add columns to data, include=FALSE}
 #Source functions
@@ -169,10 +156,15 @@ if(length(startTimes)>1){
 pb <- progress_bar$new(total=nMice)
 for (mouse in mouseNames){
   df <- get(mouse)
+
   df <- addSpeedTime(df)
-  df <- addHoursActive(df, startTimes)
+  assign(mouse, df)
+
+  df <- addHoursActive(mouse, metadata)
+  assign(mouse, df)
+
   if(timeChange){
-    df <- addTimeChange(df, dayofChange = dayOfChange, binSize=10, newlightsOnTime=newlightsOnTime, newlightsOffTime= newlightsOffTime, oldlightsOnTime = lightsOnTime, oldlightsOffTime=lightsOffTime)
+    df <- addTimeChange(df, dayOfChange = dayOfChange, dayChangeEnds=F, binSize=10, newlightsOnTime=newlightsOnTime, newlightsOffTime= newlightsOffTime)
   }
   df$id <- paste(mouse, expName, sep="|")
   assign(mouse, df)
@@ -346,52 +338,43 @@ addSpeedTime <- function(df, binSize=10){ # binSize in seconds
   # conversion factor for meter/min
   df <- df %>% mutate(speed = raw*2*pi*0.0625 *60) # not bin size dependent 	
   
-  # create time bins time expressed in days
-  df <- df %>% mutate(time = (1:length(speed)) / 3600 * binSize / 24) # 10 sec bins, time in days
+  # create column for elapsed time in days, beginning of experiment = 0
+  df <- df %>% mutate(elapsedDays = (1:length(speed)) / 3600 * binSize / 24) 
   
-  df$expDay <-  factor(ceiling(df$time))
   return(df)
 }
 
-addHoursActive <- function(df, myTime, binSize=10, lightsOnTime=7, lightsOffTime= 19){
-  #now add in time information
-  #Current time
+addHoursActive <- function(mouseName, metadata, binSize=10, lightsOnTime=7, lightsOffTime= 19){
+  # This function adds columns to the df for clock time and subjective/relative time. 
+  # Clock time is relative to the local midnight (midnight = 0).
+  # Subjective/relative time is relative to the beginning of the first light cycle (i.e., first
+  # lights ON) on the first experimental day (this typically happens before the mice are put in
+  # the cages). 
+  
+  # Variables:
+  # mouseName:     str, name of mouse(e.g., "C676")
+  # metadata:      dataframe, the metadata dataframe for the experiment
+  # binSize:       int, how frequently measurements are taken in seconds
+  # lightsOnTime:  int, hour corresponding to lights on
+  # lightsOffTime: int, hour corresponding to lights off
+  
+  # Get the time the experiment started recording from the mouse metadata table
+  df <- get(mouseName)
+  myTime <- metadata %>% filter(MouseName==mouseName) %>% select(StartTime) %>% pull()
   currentHour <- as.numeric(substring(myTime,1,2))
   currentExpHour <- 1
   currentMinute <- as.numeric(substring(myTime,4,5))
-  currentSeconds <- behavr::hours(currentHour)+60*currentMinute
-  nRows <- length(df$time)
-  #initialize variables that will be hours and whether it's the animal's active cycle
-  Hours <- replicate(nRows,0)
-  expHours <- replicate(nRows,0)
-  activeFactor <- replicate(nRows,0)
-  t <- seq(currentSeconds-behavr::hours(lightsOnTime), nRows*10+currentSeconds-10-behavr::hours(lightsOnTime), by=10)
-  minute <- 60/binSize #num of entries for each minute
-  byMin <- seq(from=1,to=nRows, by=60/binSize)
-  for (k in byMin){
-    Hours[k:(k+minute-1)] <- currentHour
-    expHours[k:(k+minute-1)] <- currentExpHour
-    currentMinute <- currentMinute+1
-    currentMinute <- currentMinute%%60
-    if (currentMinute==0){
-      currentHour <- currentHour+1
-      currentExpHour <- currentExpHour+1
-    }
-    currentHour <- currentHour%%24
-  }
-  #add hours to df
-  Hours <- head(Hours, nRows) #fix extra entries added at the end by going in minutes
-  expHours <- head(expHours, nRows) #fix extra entries added at the end by going in minute
-  df$hour <- Hours
-  df$expHour <- expHours
-  for (h in 1:length(Hours)){
-    if ((lightsOnTime <= Hours[h])&(Hours[h]< lightsOffTime)){
-      activeFactor[h] <- FALSE
-    }
-    else{
-      activeFactor[h] <- TRUE
-    }
-  }
+  currentSeconds <- behavr::hours(currentHour)+behavr::mins(currentMinute)
+  nRows <- length(df$raw)
+  
+  # set t time (in seconds) relative to lights on, set such that the last lights on before starting measurements is t=0
+  t <- seq(currentSeconds-behavr::hours(lightsOnTime), nRows*10+currentSeconds-10-behavr::hours(lightsOnTime), by=binSize)
+  t2 <- seq(currentSeconds, nRows*10+currentSeconds-10, by=binSize)
+
+  df <- df %>% mutate(expDay = ceiling((t+behavr::hours(lightsOnTime)+10)/behavr::days(1)))
+  df <- df %>% mutate(hour = floor((t2)/behavr::hours(1)) %% 24)
+
+  activeFactor <- rep(makeDayActivityWrapper(lightsOnTime, lightsOffTime, startHour=currentHour), ceiling(max(df$expDay)))[seq(1,length(df$raw))]
   #add active factor to df
   df$activeFactor <- activeFactor
   
@@ -399,38 +382,67 @@ addHoursActive <- function(df, myTime, binSize=10, lightsOnTime=7, lightsOffTime
   df$t <- t
   return (df)
 }
-addTimeChange <- function(df, dayofChange, binSize=10, newlightsOnTime=newlightsOnTime, newlightsOffTime= newlightsOffTime, oldlightsOnTime = lightsOnTime, oldlightsOffTime=lightsOffTime){
-  print("timechange")
-  #Assumes the time change was made during the LIGHT cycle
-  #now add in time information for the cycle change. default to short photoperiod
-  Hours <- df$hour
-  startHour <- df$hour[1]
-  activeFactor <- df$activeFactor
-  day <- df$expDay
-  activeStart<- FALSE
-  for (h in 1:length(Hours)){
-    if (as.numeric(day[h])==dayofChange){
-      if (Hours[h]==newlightsOffTime){ #if lights are on
-        activeStart <- TRUE
-      }
-      if ((Hours[h]>=newlightsOffTime)&(Hours[h]<oldlightsOffTime)){ #if lights are off
-        activeFactor[h] <- activeStart       
-      }
-    }
-    else if (as.numeric(day[h])>dayofChange){
-      if ((newlightsOnTime <= Hours[h])&(Hours[h]< newlightsOffTime)){
-        activeFactor[h] <- FALSE
-      }
-      else{
-        activeFactor[h] <- TRUE
-      }
-    }
+
+makeDayActivityWrapper <- function(lightsOn, lightsOff, startSecs, binSize=10){
+  #lightsOn = hour lights come on, relative to midnight = 0
+  #lightsOff = hour lights go off, relative to midnight = 0
+  #binSize = length of time between measurements, in seconds
+  #startSecs = starting time for recording data, in seconds
+  startHour <- floor(startSecs/behavr::hours(1))
+  durationLight <- abs(lightsOn-lightsOff)
+  if(startHour < durationLight){
+    start <- F #lights are on so we start inactive
   }
-  #update active factor in df
-  df$activeFactor <- activeFactor
-  # update t for behavr, 0= “ZT0 of the transition day”
-  # df <- df %>% mutate(t = t-behavr::days(dayofChange))
-  return (df)
+  else(start <- T)
+  first <- min(lightsOn, lightsOff)
+  second <- abs(lightsOn-lightsOff)
+  third <- 24 - sum(first, second)
+  makeDayActivity(hours=c(first, second, third), start=start, binSize=binSize)
+}
+
+makeDayActivity <- function(hours, start=T, binSize=10){
+  #hours = vector of hours alternating active and inactive (e.g., c(7, 12, 5))
+  #start = whether to start the day (midnight) in the active or inactive state, T=start active
+  #binSize = length of time between measurements, in seconds
+
+  if (sum(hours) !=24){
+    stop(message=paste("Hours must sum to 24. They currently sum to",sum(hours)))
+  }
+  activeState <- start
+  myDay <- c()
+  for(h in hours){
+    myDay<- append(myDay, rep(activeState, behavr::hours(h)*1/binSize))
+    activeState <- !activeState
+  }
+  myDay <- rep(myDay, 2) #double up the day
+  start <- df$t[1]/binSize #in seconds
+  myDay<- myDay[seq(start, start+behavr::days(1))]
+  return(myDay)
+}
+
+addActiveCycle <- function(df, lightsOn=7, lightsOff=19, dayRange=F){
+  #assumes activity in darkness
+  currentHour <- floor(df$t[1]/behavr::hours(1))
+}
+
+addTimeChange <- function(df, dayOfChange, dayChangeEnds = F, binSize=10, newlightsOnTime=newlightsOnTime, newlightsOffTime= newlightsOffTime){
+  #binSize = length of time between measurements, in seconds
+  startHour <- df$hour[1]
+  newDay <- makeDayActivityWrapper(newlightsOnTime, newlightsOffTime, startHour=startHour)
+  if(dayChangeEnds==F){
+    dayChangeEnds <- max(as.numeric(df$expDay))
+  }
+  newDays <- rep(newDay, dayChangeEnds-dayofChange)
+  changeTheseTimepoints <- seq(behavr::days(dayofChange)*(1/binSize), behavr::days(dayChangeEnds)*(1/binSize)-1)
+  if(max(changeTheseTimepoints > nrow(df))){
+    #if the timepoints to change extend beyond the number of rows in the dataset, chop off the data
+    #this would happen if the last day isn't a full 24 hrs long
+    subsetindex <- c(changeTheseTimepoints <= nrow(df))
+    changeTheseTimepoints <- changeTheseTimepoints[subsetindex]
+    newDays <- newDays[subsetindex]
+  }
+  df$activeFactor[changeTheseTimepoints] <- newDays
+  return(df)
 }
 
 #4. function to get boundaries of on/off light cycle
