@@ -49,38 +49,54 @@ cat("\n", emo::ji("white_heavy_check_mark"), length((.packages())), "packages lo
 
 * Select your options for your analysis in the code below. T for True, F for False.
 
-```{r options, echo=F}
+```{r options, echo=F, fig.height=2}
+# Set these variables for your experiment:
+
 expName <- "Exp1"           # Name for your experiment, include no spaces, just letters, numbers, and underscores
 TrimDays <- F               # Do you want to trim a number of days from the beginning of the dataset? (valid values are F (FALSE) or a number (e.g., 3) )  
-headerLength <- 7           # Number of lines for header
 lightsOnTime <- 7           # Time lights come ON. Default 7 = 7 AM
 lightsOffTime <- 19         # Time lights go OFF. Default 19 = 7 PM
 timeChange <- T             # Was there a time change in this experiment? Default = False, no time change
 
 
-#If you have a time change:
+# If you have a time change:
+
 dayOfChange <- 14            # What experimental day the change occurs on (First day of experiment is Day 1)
 newlightsOnTime <- 7          # If you have a time change, what is the new lights ON time?
 newlightsOffTime <- 12         # If you have a time change, what is the new lights OFF time?
 
-#How is your header organized? 
+# How is your header organized? 
+
 header <- c('MouseName', 'Date', 'StartTime', 'bin_secs', 'CageNum', 'Genotype', 'Sex')
 
-#output the settings 
+# output the settings 
 
 cat("Settings: \n", 
     str_pad(paste("Experiment name",emo::ji("ID button"),":"), 22, "left"),  expName, "\n",
     str_pad(paste("Trim Days",emo::ji("scissors"),":"), 22, "left"),  TrimDays, "\n",
-    str_pad(paste("Header length",emo::ji("straight_ruler"),":"), 22, "left"),  headerLength, "\n",
-    str_pad(paste("Lights On",emo::ji("sun"),":"), 22, "left"),  lightsOnTime, "\n",
-    str_pad(paste("Lights Off",emo::ji("waxing_crescent_moon"),":"), 22, "left"),  lightsOffTime, "\n",
+    str_pad(paste("Lights On",emo::ji("sunrise"),":"), 22, "left"),  lightsOnTime, "\n",
+    str_pad(paste("Lights Off",emo::ji("night with stars"),":"), 22, "left"),  lightsOffTime, "\n",
     str_pad(paste("Time change?",emo::ji("alarm_clock"),":"), 22, "left"),  timeChange, "\n\n")
 
 if(timeChange){
   cat("Time change settings:", emo::ji("alarm_clock"), "\n", 
-      str_pad(paste("Lights ON", emo::ji("sun"), ":"), 22, "left"), str_pad(lightsOnTime, 2, "right"), emo::ji("right_arrow"), newlightsOnTime, "\n",
-      str_pad(paste("Lights OFF", emo::ji("waxing_crescent_moon"), ":"), 22, "left"), str_pad(lightsOffTime, 2, "right"), emo::ji("right_arrow"), newlightsOffTime)
+      str_pad(paste("Lights ON", emo::ji("sunrise"), ":"), 22, "left"), str_pad(lightsOnTime, 2, "right"), emo::ji("right_arrow"), newlightsOnTime, "\n",
+      str_pad(paste("Lights OFF", emo::ji("night with stars"), ":"), 22, "left"), str_pad(lightsOffTime, 2, "right"), emo::ji("right_arrow"), newlightsOffTime)
 }
+```
+
+
+```{r Phases, echo=F, fig.height=1, fig.width=5}
+
+# Phases of your experiment. Name the phases of your experiment and the day each phase starts on. 
+# Phases will extend from that day up until the next start day listed or until the end of the experiment: 
+
+phases <- c("Acclimation", "12:12", "Short-day")
+phaseStart <- c(1, 4, dayOfChange)
+
+
+
+
 ```
 
 ### `r emo::ji("directory")` Make directory structure for the project 
@@ -103,7 +119,7 @@ for(d in list(figDir, resultsDir, hourlyResultsDir, docDir, dir_data_clean, dir_
 options(stringsAsFactors=FALSE)
 
 #open the script log: 
-logpath <- here(docDir, "log.txt")
+logpath <- here(docDir, "log")
 lf <- log_open(logpath, show_notes = T, autolog = T)
 log_print(sessionInfo(), console = F)
 cat("\n", emo::ji("white_heavy_check_mark"), "Made folder structure here:",emo::ji("open_file_folder"), here())
@@ -162,6 +178,8 @@ for (mouse in mouseNames){
 
   df <- addHoursActive(mouse, metadata)
   assign(mouse, df)
+  
+  df <- addExpPhase(df, phases, phaseStart)
 
   if(timeChange){
     df <- addTimeChange(df, dayOfChange = dayOfChange, dayChangeEnds=F, binSize=10, newlightsOnTime=newlightsOnTime, newlightsOffTime= newlightsOffTime)
@@ -175,6 +193,45 @@ for (mouse in mouseNames){
 cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished adding data for ',nMice,' mice ')), emo::ji("mouse"))
 
 ```
+### `r emo::ji("calendar")` Add experimental phases
+
+```{r Data phases, include=FALSE}
+
+addExpPhase <- function(df, phaseNames, phaseStart){
+  numDays <- max(df$expDay)
+  phases <- c(phaseNames, "end")
+  phaseStart <- c(phaseStart, numDays+1)
+  currentPhase <- rep(NA, numDays)
+  for(i in seq(1, length(phases)-1)){
+    start <- phaseStart[i]
+    end <- phaseStart[i+1]
+    currentPhase[seq(start, end-1)] <- rep(phases[i], abs(start-end))
+  }
+  phase_df <- data.frame(expDay = 1:numDays, expPhase = currentPhase)
+  df <- merge(x = df, y = phase_df, by = "expDay") 
+  return(df)
+}
+
+#Source functions
+
+
+phaseDuration <- rep(0,length(phases))
+for(i in seq(1, length(phases)-1)){
+  phaseDuration[i] <- abs(phaseStart[i]-phaseStart[i+1])
+}
+
+phase_df <- data.frame(phase = phases, start = phaseStart, duration=phaseDuration)
+
+# Dislay approx. experimental timeline (note that the last phase is just set to a constant since the script doesn't know when an experiment ends at this point)
+ggplot(head(phase_df,-1), aes(fill=factor(phase, levels=rev(phases[1:length(phases)-1])), x=duration, y="Experimental timeline")) + 
+    geom_bar(position="stack", stat="identity")+
+    theme_void()+
+    coord_fixed(ratio=0.7)+
+    labs(fill="Phase")+
+    scale_fill_brewer(guide = guide_legend(reverse = TRUE), palette="Paired")+
+    theme(legend.position="left")
+
+```
 
 ### `r emo::ji("floppy")` Save tables 
 
@@ -186,7 +243,7 @@ write.csv(metadata, file=here(resultsDir, "exp_metdata.csv"))
 pb <- progress_bar$new(total=nMice)
 for (mouse in mouseNames){
   df <- get(mouse)
-  df <- df %>% dplyr::group_by(expDay, expHour, hour, activeFactor) %>% dplyr::summarize(avg_speed = mean(speed))
+  df <- df %>% dplyr::group_by(paste(str_pad(expDay, 3, pad="0"),hour), expDay, hour, activeFactor) %>% dplyr::summarize(avg_speed = mean(speed), is_active = ifelse(avg_speed>0, T,F))
   assign(paste0(mouse,"_hourly"), df)
   filename <- paste0(mouse,"_hourly.csv")
   write.csv(df, file=here(resultsDir,"Hourly_data", filename), row.names = F)
@@ -295,16 +352,19 @@ ggetho(dt,
             stat_ld_annotations(x_limits = behavr::days(c(1,2)),
                                 ld_colours = c("grey", "black"), l_duration=behavr::hours(5))
 
+```
+
+```{r Actogram facet, fig.height=8}
+
 p <- ggetho(dt, aes(z = speed), multiplot = 2, multiplot_period = behavr::hours(24))+
   stat_bar_tile_etho()+
   stat_ld_annotations() +
   stat_ld_annotations(x_limits = behavr::days(c(1,2)),
                                 ld_colours = c("grey", "black"), l_duration=behavr::hours(5))+
 
-  facet_wrap( ~ Genotype + MouseName, ncol=4, labeller = label_wrap_gen(multi_line=FALSE))
+  facet_wrap( ~ Genotype + MouseName + Sex, ncol=4, labeller = label_wrap_gen(multi_line=FALSE))
 
-p+scale_y_discrete(labels=rev(everyThird(seq(startDay-1, endDay-1))))+
-  geom_hline(yintercept=intercept, color="tomato", linetype="solid")+
+
 
 everyThird <- function(x){
   x[seq(2, length(x), 3)] <- ""
@@ -312,6 +372,9 @@ everyThird <- function(x){
   x
 }
 intercept <- endDay-dayOfChange-0.5
+
+p+scale_y_discrete(labels=rev(everyThird(seq(startDay-1, endDay-1))))+
+  geom_hline(yintercept=intercept, color="tomato", linetype="solid")
 
 ```
 
@@ -330,6 +393,20 @@ ggperio(per_xsq_dt, aes(
 
 ```
 
+
+```{r Mean bout length}
+
+per_xsq_dt <- periodogram(speed, 
+                        dt,
+                        FUN = chi_sq_periodogram)
+per_xsq_dt <- find_peaks(per_xsq_dt)
+ggperio(per_xsq_dt) + geom_line(aes(group = id, color=Genotype))
+ggperio(per_xsq_dt, aes(
+                  y = power - signif_threshold,
+                  color=Genotype)) + 
+                  stat_pop_etho()
+
+```
 
 ```{r functions}
 
