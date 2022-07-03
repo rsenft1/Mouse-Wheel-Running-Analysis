@@ -53,7 +53,6 @@ cat("\n", emo::ji("white_heavy_check_mark"), length((.packages())), "packages lo
 # Set these variables for your experiment:
 
 expName <- "Exp1"           # Name for your experiment, include no spaces, just letters, numbers, and underscores
-TrimDays <- F               # Do you want to trim a number of days from the beginning of the dataset? (valid values are F (FALSE) or a number (e.g., 3) )  
 lightsOnTime <- 7           # Time lights come ON. Default 7 = 7 AM
 lightsOffTime <- 19         # Time lights go OFF. Default 19 = 7 PM
 timeChange <- T             # Was there a time change in this experiment? Default = False, no time change
@@ -70,16 +69,15 @@ newlightsOffTime <- 12         # If you have a time change, what is the new ligh
 header <- c('MouseName', 'Date', 'StartTime', 'bin_secs', 'CageNum', 'Genotype', 'Sex')
 
 # output the settings 
-
-cat("Settings: \n", 
+cat("Settings for",expName,": \n", 
     str_pad(paste("Experiment name",emo::ji("ID button"),":"), 22, "left"),  expName, "\n",
-    str_pad(paste("Trim Days",emo::ji("scissors"),":"), 22, "left"),  TrimDays, "\n",
     str_pad(paste("Lights On",emo::ji("sunrise"),":"), 22, "left"),  lightsOnTime, "\n",
     str_pad(paste("Lights Off",emo::ji("night with stars"),":"), 22, "left"),  lightsOffTime, "\n",
     str_pad(paste("Time change?",emo::ji("alarm_clock"),":"), 22, "left"),  timeChange, "\n\n")
 
 if(timeChange){
   cat("Time change settings:", emo::ji("alarm_clock"), "\n", 
+      str_pad(paste("Day of change", emo::ji("calendar"), ":"), 22, "left"), dayOfChange, "\n",
       str_pad(paste("Lights ON", emo::ji("sunrise"), ":"), 22, "left"), str_pad(lightsOnTime, 2, "right"), emo::ji("right_arrow"), newlightsOnTime, "\n",
       str_pad(paste("Lights OFF", emo::ji("night with stars"), ":"), 22, "left"), str_pad(lightsOffTime, 2, "right"), emo::ji("right_arrow"), newlightsOffTime)
 }
@@ -94,15 +92,12 @@ if(timeChange){
 phases <- c("Acclimation", "12:12", "Short-day")
 phaseStart <- c(1, 4, dayOfChange)
 
-
-
-
 ```
 
 ### `r emo::ji("directory")` Make directory structure for the project 
 
 ```{r make_dirs, echo=FALSE}
-options(crayon.enabled = TRUE)
+
 ## Make directories
 dir_scripts <- here("scripts")                          #where the scripts are
 dir_rawData <- here("data", "01_Raw_data")              #where the raw data is
