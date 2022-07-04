@@ -20,12 +20,12 @@ When you execute code within the notebook, the results appear beneath the code. 
 
 This code block loads necessary libraries and sets up the directory structure necessary for the project. You need to run it, but it is not included in your output notebook.
 
-```{r libraries, echo=FALSE}
+```{r setup, include=FALSE}
 
 # Load necessary libraries
 
 ## This package-checking chunk of code is from vikram: https://vbaliga.github.io/verify-that-r-packages-are-installed-and-loaded/
-packages = c("tidyr", "here", "grid", "stringr", "matrixStats", "reshape2", "logr", "dplyr", "vroom", "fs", "progress", "crayon", "devtools", "data.table", "ggplot2","behavr", "ggetho", "sleepr", "zeitgebr")
+packages = c("tidyr", "here", "grid", "stringr", "matrixStats", "reshape2", "logr", "dplyr", "vroom", "fs", "progress", "crayon", "devtools", "data.table", "ggplot2","behavr", "ggetho", "report", "sleepr", "zeitgebr")
 
 ## Now load or install&load all
 package.check <- lapply(
@@ -49,7 +49,7 @@ cat("\n", emo::ji("white_heavy_check_mark"), length((.packages())), "packages lo
 
 * Select your options for your analysis in the code below. T for True, F for False.
 
-```{r options, echo=F, fig.height=2}
+```{r options, echo=FALSE}
 # Set these variables for your experiment:
 
 expName <- "Exp1"           # Name for your experiment, include no spaces, just letters, numbers, and underscores
@@ -197,7 +197,42 @@ for (mouse in mouseNames){
 cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished adding data for ',nMice,' mice ')), emo::ji("mouse"))
 
 ```
-### `r emo::ji("calendar")` Add experimental phases
+
+```{r Make behavr table, results = 'asis'}
+
+#Pick days to build graph over
+startDay <- 5
+endDay <- 30
+
+#make behavr table
+data <- data.table::rbindlist(mget(mouseNames))
+rm(list = ls()[ls() %in% mouseNames]) #remove the mouse dfs since we don't need them anymore
+setkey(metadata, id)
+setkey(data, id)
+dt <- behavr(data, metadata)
+dt[, moving:= speed>0] #if speed is greater than 0, moving=TRUE
+summary(dt)
+metadata
+
+clean_dt <- 
+  rejoin(dt[,
+           .(
+             # this is where the computation happens
+             moving_fraction = mean(moving)
+             ),
+           by=id])
+
+# remove mice that don't run 1% of the time... also have to do this earlier as well... 
+removed <- clean_dt %>% group_by(id) %>% filter(moving_fraction <= 0.01) %>% pull(MouseName)
+clean_dt <- clean_dt %>% group_by(id) %>% filter(moving_fraction > 0.01)
+
+subset_dt <- dt[id %in% clean_dt$id,]
+cat(emo::ji("white_heavy_check_mark"), length(removed), " mice were removed because they ran **less than 1%** of the experiment: ", white$bgRed$bold(paste(removed)), " \n")
+
+```
+
+
+### `r emo::ji("calendar")` Experimental timeline
 
 ```{r Data phases, echo=FALSE, fig.height=2, fig.width=6}
 #Source functions
@@ -216,7 +251,7 @@ ggplot(phase_df, aes(fill=factor(phase, levels=rev(phases[1:(length(phases))])),
   theme_light()+
   coord_fixed(ratio=0.9)+
   labs(fill="Phase", y="", x="Day")+
-  scale_x_continuous(expand = c(0, 0))+
+  scale_x_continuous(breaks=phase_df$start-1, labels=phase_df$start, expand = c(0, 0))+
   scale_y_discrete(expand = c(0, 0))+
   scale_fill_brewer(guide = guide_legend(reverse = TRUE), palette="Paired")+
   theme(legend.position="left", axis.text.y=element_blank(),  axis.ticks = element_blank())
@@ -225,10 +260,11 @@ ggplot(phase_df, aes(fill=factor(phase, levels=rev(phases[1:(length(phases))])),
 
 ### `r emo::ji("floppy")` Save tables 
 
-```{r Save tables of hourly data}
+```{r Save tables of hourly data, include=FALSE}
 
 #Save Metadata table
 write.csv(metadata, file=here(dir_results, "exp_metdata.csv"))
+
 saveHourly <- F
 
 #Save hourly data for every mouse
@@ -246,86 +282,42 @@ if (saveHourly){
 cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished summarizing hourly data for ',nMice,' mice ')), emo::ji("mouse"))
 ```
 
-```{r Save speed every arbitrary num of minutes}
+```{r Save speed every arbitrary num of minutes, include=FALSE}
 
 #Save data every x min for every mouse
-t_min <- min(C676$t)/behavr::mins(1)
-t_max <- max(C676$t)/behavr::mins(1)
+
 desired_bin <- 5 # min
 
-mouse_df <- C676
 pb <- progress_bar$new(total=nMice)
 for (mouse in mouseNames){
   df <- get(mouse)
+  t_min <- min(df$t)/behavr::mins(1)
+  t_max <- max(df$t)/behavr::mins(1)
   df <- data.frame("MeanSpeed"=tapply(df$speed, cut(df$t/behavr::mins(1), seq(t_min, t_max, by=desired_bin)), mean), "ExpDay"=tapply(df$expDay, cut(df$t/behavr::mins(1), seq(t_min, t_max, by=desired_bin)), median))
   filename <- paste0(mouse,"_",desired_bin,"_min.csv")
   write.csv(df, file=here(dir_table_ind, filename), row.names = F)
   pb$tick()
 }
 
-
+cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished collapsing data into ',desired_bin,' minute bins (function = mean) for ',nMice,' mice ')), emo::ji("mouse"))
 
 ```
 
 ### `r emo::ji("chart_increasing")` Make graphs 
 
-```{r obsolete}
-filteredData <- C676 %>%  filter(as.integer(expDay)>3 & as.integer(expDay)<10)
-acf_oject <- acf(x=filteredData$speed, lag.max=360000)
 
-#plain
-ss=868
-FF = abs(fft(C676_hourly$avg_speed)/sqrt(ss))^2
-P = (4/ss)*FF[1:65] # Only need the first (n/2)+1 values of the FFT result.
-f = (0:64)/ss # this creates harmonic frequencies from 0 to .5 in steps of 1/128.
-plot(f, P, type="l") # This plots the periodogram; type = “l” creates a line plot. Note: l is lowercase L, not number 1.
-
-
-
-#ggetho
-#column for before/after switch
-#column for whether active (above some threshold - 0 or howmany spins per 10 seconds)
-```
-
-
-```{r behavr table}
-
-#Pick days to build graph over
-startDay <- 5
-endDay <- 30
-
-#make behavr table
-data <- data.table::rbindlist(mget(mouseNames)) %>%  dplyr::filter(t>behavr::days(startDay) & t<=behavr::days(endDay))
-setkey(metadata, id)
-setkey(data, id)
-dt <- behavr(data, metadata)
-summary(dt)
-metadata
-
-clean_dt <- 
-  rejoin(dt[,
-           .(
-             # this is where the computation happens
-             moving_fraction = mean(moving)
-             ),
-           by=id])
-
-# remove mice that don't run 1% of the time... also have to do this earlier as well... 
-clean_dt <- clean_dt %>% group_by(id) %>% filter(moving_fraction > 0.01)
-
-subset_dt <- dt[id %in% clean_dt$id,]
-```
 
 ```{r graph1, fig.width=20}
-dt[, moving:= speed>0]
+dt_post <- subset_dt %>% filter(expDay > dayOfChange)
 
-bout_dt <- sleepr::bout_analysis(moving, dt)
+bout_dt <- sleepr::bout_analysis(moving, dt_post)
 bout_dt <- bout_dt[moving == TRUE, -"moving"]
 
 ggetho(bout_dt, aes(y=duration / 60, colour=Genotype), time_wrap = hours(24)) + 
       stat_pop_etho() + 
       facet_grid(Sex ~ .) +
-      scale_y_continuous(name= "Bout length (min)")
+      scale_y_continuous(name= "Bout length (min)") +
+      theme_light()
 
 stat_bout <- bout_dt[,
         .(n_bouts = .N,
@@ -336,6 +328,23 @@ new_meta <- dt[stat_bout, meta=T]
 # set new metadata
 setmeta(dt, new_meta)
 head(dt[meta=T])
+
+#t-test 
+#group options
+unique(new_meta[,"Genotype"])
+geno1 = "Vglut3 f/f tom"
+geno2 = "Vglut3 f/f cre"
+
+#bout length
+group1 <- new_meta[Genotype %in% geno1, "mean_bout_length"]
+group2 <- new_meta[Genotype %in% geno2, "mean_bout_length"]
+report(t.test(group1, group2))
+
+#n_bouts
+group1 <- new_meta[Genotype %in% geno1, "n_bouts"]
+group2 <- new_meta[Genotype %in% geno2, "n_bouts"]
+report(t.test(group1, group2))
+
 ```
 
 ```{r}
@@ -614,7 +623,11 @@ getlightCycle <- function(df){
 
 ```
 
+### `r emo::ji("bookmark_tabs")` Methods and References
 
+```{r Ref, echo=FALSE, results = 'asis'}
+cat(report(sessionInfo()))
+```
 
 When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
 
