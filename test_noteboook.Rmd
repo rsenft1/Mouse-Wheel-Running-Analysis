@@ -68,6 +68,12 @@ newlightsOffTime <- 12         # If you have a time change, what is the new ligh
 
 header <- c('MouseName', 'Date', 'StartTime', 'bin_secs', 'CageNum', 'Genotype', 'Sex')
 
+# How is your experiment organized? Name the phases of your experiment and the day each phase starts on. 
+# Phases will extend from that day up until the next start day listed or until the end of the experiment: 
+
+phases <- c("Acclimation", "12:12", "Short-day")
+phaseStart <- c(1, 4, dayOfChange)
+
 # output the settings 
 cat("Settings for",expName,": \n", 
     str_pad(paste("Experiment name",emo::ji("ID button"),":"), 22, "left"),  expName, "\n",
@@ -82,17 +88,6 @@ if(timeChange){
       str_pad(paste("Lights OFF", emo::ji("night with stars"), ":"), 22, "left"), str_pad(lightsOffTime, 2, "right"), emo::ji("right_arrow"), newlightsOffTime)
 }
 cat("\n\n", emo::ji("white_heavy_check_mark"), emo::ji("gear"), "Settings loaded")
-
-```
-
-
-```{r Phases, echo=F, fig.height=1, fig.width=5}
-
-# Phases of your experiment. Name the phases of your experiment and the day each phase starts on. 
-# Phases will extend from that day up until the next start day listed or until the end of the experiment: 
-
-phases <- c("Acclimation", "12:12", "Short-day")
-phaseStart <- c(1, 4, dayOfChange)
 
 ```
 
@@ -124,9 +119,9 @@ cat("\n", emo::ji("white_heavy_check_mark"), "Made folder structure here:",emo::
 
 ### `r emo::ji("broom")` Organize, Load, and Clean Data
 
-```{r LoadData, results=FALSE, collapse=TRUE}
+This step organizes the mouse .log files into 1 folder per mouse, then loads the data into R and creates a metadata table from the data frames.
+```{r LoadData, include=FALSE}
 ## organize .log files into 1 folder per animal
-
 source(here(dir_scripts, "01_organize_data_files.R")) 
 
 ## read data into R
@@ -157,12 +152,23 @@ metadata <- metadata %>% mutate_all(~sub(".*: ", "", .))
 metadata <- metadata %>% mutate(id = paste(MouseName, expName, sep="|"))
 #make metadata into a data table
 metadata <- data.table(metadata)
+
 cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished loading ',nMice,' log files ')), emo::ji("mouse"))
 ```
 
-### `r emo::ji("input_numbers")` Add columnns to data 
+### `r emo::ji("input_numbers")` Add columns to data 
 
+This chunk takes  your data for each mouse and adds additional variables, like speed, time of day, and experimental phase information. Data columns include:
 
+* `expDay` (1, 2, 3...# of experimental days)
+* `speed` (should be in meters/min)
+* `elapsedDays` same as `expDay` but days can be fractional
+* `hour` (clock time hour)
+* `minutes` (clock time minutes)
+* `activeFactor` (whether the animal is in its active phase (lights OFF -> TRUE))
+* `t` (time in seconds since the first lights ON (can precede the start of the recording)
+* `expPhase` (which experimental phase each time point belongs to)
+* `moving` (whether that individual animal moved during that 10 second period))
 ```{r Add columns to data, include=FALSE}
 #Source functions
 #ADD HERE
@@ -193,12 +199,8 @@ cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished addi
 ```
 ### `r emo::ji("calendar")` Add experimental phases
 
-```{r Data phases, include=FALSE}
-
-
-
+```{r Data phases, echo=FALSE, fig.height=2, fig.width=6}
 #Source functions
-
 
 phaseDuration <- rep(0,length(phases))
 for(i in seq(1, length(phases)-1)){
@@ -208,16 +210,18 @@ for(i in seq(1, length(phases)-1)){
 phase_df <- data.frame(phase = phases, start = phaseStart, duration=phaseDuration)
 phase_df$duration[length(phases)] <- max(df$expDay)-phase_df$start[length(phases)]
 
-# Dislay approx. experimental timeline (note that the last phase is just set to a constant since the script doesn't know when an experiment ends at this point)
+# Display approx. experimental timeline
 ggplot(phase_df, aes(fill=factor(phase, levels=rev(phases[1:(length(phases))])), x=duration, y="Experimental timeline")) + 
-    geom_bar(position="stack", stat="identity")+
-    theme_void()+
-    coord_fixed(ratio=0.7)+
-    labs(fill="Phase")+
-    scale_fill_brewer(guide = guide_legend(reverse = TRUE), palette="Paired")+
-    theme(legend.position="left")
-
+  geom_bar(position="stack", stat="identity")+
+  theme_light()+
+  coord_fixed(ratio=0.9)+
+  labs(fill="Phase", y="", x="Day")+
+  scale_x_continuous(expand = c(0, 0))+
+  scale_y_discrete(expand = c(0, 0))+
+  scale_fill_brewer(guide = guide_legend(reverse = TRUE), palette="Paired")+
+  theme(legend.position="left", axis.text.y=element_blank(),  axis.ticks = element_blank())
 ```
+
 
 ### `r emo::ji("floppy")` Save tables 
 
@@ -450,7 +454,7 @@ ggplot(summary_dt, aes(x=Sex, y=moving_fraction, fill=Genotype)) +
 
 
 addSpeedTime <- function(df, binSize=10){ # binSize in seconds
-  # conversion factor for meter/min
+  # conversion factor for meter/min, 0.0625 is radius in meters (=6.25 cm)
   df <- df %>% mutate(speed = raw*2*pi*0.0625 *60) # not bin size dependent 	
   
   # create column for elapsed time in days, beginning of experiment = 0
