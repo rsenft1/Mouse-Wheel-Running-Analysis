@@ -81,6 +81,8 @@ if(timeChange){
       str_pad(paste("Lights ON", emo::ji("sunrise"), ":"), 22, "left"), str_pad(lightsOnTime, 2, "right"), emo::ji("right_arrow"), newlightsOnTime, "\n",
       str_pad(paste("Lights OFF", emo::ji("night with stars"), ":"), 22, "left"), str_pad(lightsOffTime, 2, "right"), emo::ji("right_arrow"), newlightsOffTime)
 }
+cat("\n\n", emo::ji("white_heavy_check_mark"), emo::ji("gear"), "Settings loaded")
+
 ```
 
 
@@ -101,22 +103,22 @@ phaseStart <- c(1, 4, dayOfChange)
 ## Make directories
 dir_scripts <- here("scripts")                          #where the scripts are
 dir_rawData <- here("data", "01_Raw_data")              #where the raw data is
-dir_orgData <- here("data", "02_Organized_data")        #where the organized data is
-dir_data_clean <- here("data", "03_Clean_data")         #where the cleaned data is
-dir_data_indSpeed <- here(dir_data_clean, "01_IndSpeed")
-dir_data_AvgSpeedPerDay <- here(dir_data_clean, "02_AvgSpeedPerDay")
-dir_data_PercentRunningPerDay <- here(dir_data_clean, "03_PercentRunningPerDay")
-figDir <- here("figs")
-resultsDir <- here("results")
-hourlyResultsDir <- here(resultsDir, "Hourly_data")
-docDir <- here("doc")
-for(d in list(figDir, resultsDir, hourlyResultsDir, docDir, dir_data_clean, dir_rawData, dir_orgData, dir_data_AvgSpeedPerDay, dir_data_PercentRunningPerDay, dir_data_indSpeed))if(!dir.exists(d)){dir.create(d)}
+dir_orgData <- here("data", "02_Organized_data")        #where the organized data is (still raw files)
+dir_data_clean <- here("data", "03_Clean_data")         #where the cleaned data is (transformed, what you would use to make graphs)
+dir_doc <- here("doc")
+dir_figs <- here("figs")
+dir_results <- here("results")
+dir_table_ind <- here(dir_results, "01_Individual_mice")
+dir_table_group <- here(dir_results, "02_By_Group")
+
+for(d in list(dir_doc, dir_rawData, dir_orgData,dir_data_clean,dir_figs,dir_results, dir_table_ind,dir_table_group))if(!dir.exists(d)){dir.create(d)}
 options(stringsAsFactors=FALSE)
 
 #open the script log: 
-logpath <- here(docDir, "log")
+logpath <- here(dir_doc, "log")
 lf <- log_open(logpath, show_notes = T, autolog = T)
 log_print(sessionInfo(), console = F)
+
 cat("\n", emo::ji("white_heavy_check_mark"), "Made folder structure here:",emo::ji("open_file_folder"), here())
 ```
 
@@ -131,7 +133,7 @@ source(here(dir_scripts, "01_organize_data_files.R"))
 
 mouseNames <- list.dirs(dir_orgData, full.names = F)[-1]
 nMice <- length(mouseNames)
-
+headerLength <- length(header)
 ## This gets basic running data for each mouse
 metadata <- data.frame(matrix(NA_character_, nrow = headerLength, ncol = nMice))
 
@@ -149,7 +151,7 @@ for (mouse in mouseNames){
 metadata <- transpose(metadata)
 colnames(metadata) <- header
 
-#For each column in metadata, keep only the string after ": ", no change of there's no ": " To deal with style of output on second Pi
+#For each column in metadata, keep only the string after ": ", no change if there's no ": " To deal with style of output on second Raspberry Pi
 metadata <- metadata %>% mutate_all(~sub(".*: ", "", .))
 #make the id for each mouse
 metadata <- metadata %>% mutate(id = paste(MouseName, expName, sep="|"))
@@ -163,6 +165,7 @@ cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished load
 
 ```{r Add columns to data, include=FALSE}
 #Source functions
+#ADD HERE
 
 pb <- progress_bar$new(total=nMice)
 for (mouse in mouseNames){
@@ -192,20 +195,7 @@ cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished addi
 
 ```{r Data phases, include=FALSE}
 
-addExpPhase <- function(df, phaseNames, phaseStart){
-  numDays <- max(df$expDay)
-  phases <- c(phaseNames, "end")
-  phaseStart <- c(phaseStart, numDays+1)
-  currentPhase <- rep(NA, numDays)
-  for(i in seq(1, length(phases)-1)){
-    start <- phaseStart[i]
-    end <- phaseStart[i+1]
-    currentPhase[seq(start, end-1)] <- rep(phases[i], abs(start-end))
-  }
-  phase_df <- data.frame(expDay = 1:numDays, expPhase = currentPhase)
-  df <- merge(x = df, y = phase_df, by = "expDay") 
-  return(df)
-}
+
 
 #Source functions
 
@@ -216,9 +206,10 @@ for(i in seq(1, length(phases)-1)){
 }
 
 phase_df <- data.frame(phase = phases, start = phaseStart, duration=phaseDuration)
+phase_df$duration[length(phases)] <- max(df$expDay)-phase_df$start[length(phases)]
 
 # Dislay approx. experimental timeline (note that the last phase is just set to a constant since the script doesn't know when an experiment ends at this point)
-ggplot(head(phase_df,-1), aes(fill=factor(phase, levels=rev(phases[1:length(phases)-1])), x=duration, y="Experimental timeline")) + 
+ggplot(phase_df, aes(fill=factor(phase, levels=rev(phases[1:(length(phases))])), x=duration, y="Experimental timeline")) + 
     geom_bar(position="stack", stat="identity")+
     theme_void()+
     coord_fixed(ratio=0.7)+
@@ -231,20 +222,44 @@ ggplot(head(phase_df,-1), aes(fill=factor(phase, levels=rev(phases[1:length(phas
 ### `r emo::ji("floppy")` Save tables 
 
 ```{r Save tables of hourly data}
+
 #Save Metadata table
-write.csv(metadata, file=here(resultsDir, "exp_metdata.csv"))
+write.csv(metadata, file=here(dir_results, "exp_metdata.csv"))
+saveHourly <- F
 
 #Save hourly data for every mouse
+if (saveHourly){
+  pb <- progress_bar$new(total=nMice)
+  for (mouse in mouseNames){
+    df <- get(mouse)
+    df <- df %>% dplyr::group_by(paste(str_pad(expDay, 3, pad="0"),hour), expDay, hour, activeFactor) %>% dplyr::summarize(avg_speed = mean(speed), is_active = ifelse(avg_speed>0, T,F))
+    filename <- paste0(mouse,"_hourly.csv")
+    write.csv(df, file=here(dir_results,"Hourly_data", filename), row.names = F)
+    pb$tick()
+  }
+}
+
+cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished summarizing hourly data for ',nMice,' mice ')), emo::ji("mouse"))
+```
+
+```{r Save speed every arbitrary num of minutes}
+
+#Save data every x min for every mouse
+t_min <- min(C676$t)/behavr::mins(1)
+t_max <- max(C676$t)/behavr::mins(1)
+desired_bin <- 5 # min
+
+mouse_df <- C676
 pb <- progress_bar$new(total=nMice)
 for (mouse in mouseNames){
   df <- get(mouse)
-  df <- df %>% dplyr::group_by(paste(str_pad(expDay, 3, pad="0"),hour), expDay, hour, activeFactor) %>% dplyr::summarize(avg_speed = mean(speed), is_active = ifelse(avg_speed>0, T,F))
-  assign(paste0(mouse,"_hourly"), df)
-  filename <- paste0(mouse,"_hourly.csv")
-  write.csv(df, file=here(resultsDir,"Hourly_data", filename), row.names = F)
+  df <- data.frame("MeanSpeed"=tapply(df$speed, cut(df$t/behavr::mins(1), seq(t_min, t_max, by=desired_bin)), mean), "ExpDay"=tapply(df$expDay, cut(df$t/behavr::mins(1), seq(t_min, t_max, by=desired_bin)), median))
+  filename <- paste0(mouse,"_",desired_bin,"_min.csv")
+  write.csv(df, file=here(dir_table_ind, filename), row.names = F)
   pb$tick()
 }
-cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished summarizing hourly data for ',nMice,' mice ')), emo::ji("mouse"))
+
+
 
 ```
 
@@ -282,6 +297,19 @@ setkey(data, id)
 dt <- behavr(data, metadata)
 summary(dt)
 metadata
+
+clean_dt <- 
+  rejoin(dt[,
+           .(
+             # this is where the computation happens
+             moving_fraction = mean(moving)
+             ),
+           by=id])
+
+# remove mice that don't run 1% of the time... also have to do this earlier as well... 
+clean_dt <- clean_dt %>% group_by(id) %>% filter(moving_fraction > 0.01)
+
+subset_dt <- dt[id %in% clean_dt$id,]
 ```
 
 ```{r graph1, fig.width=20}
@@ -307,6 +335,7 @@ head(dt[meta=T])
 ```
 
 ```{r}
+#mean +/- 1 SE
 
 ggetho(dt, aes(z=speed), timewrap = behavr::hours(24)) +
       scale_y_discrete(expand=expansion(add = c(1.4)))+
@@ -349,7 +378,7 @@ ggetho(dt,
 
 ```
 
-```{r Actogram facet, fig.height=8}
+```{r Actogram facet, fig.height=10}
 
 p <- ggetho(dt, aes(z = speed), multiplot = 2, multiplot_period = behavr::hours(24))+
   stat_bar_tile_etho()+
@@ -390,17 +419,31 @@ ggperio(per_xsq_dt, aes(
 
 
 ```{r Mean bout length}
+dt_curated <- dt
+dt_curated <- dt_curated[t %between% c(behavr::days(14), behavr::days(36))]
 
-per_xsq_dt <- periodogram(speed, 
-                        dt,
-                        FUN = chi_sq_periodogram)
-per_xsq_dt <- find_peaks(per_xsq_dt)
-ggperio(per_xsq_dt) + geom_line(aes(group = id, color=Genotype))
-ggperio(per_xsq_dt, aes(
-                  y = power - signif_threshold,
-                  color=Genotype)) + 
-                  stat_pop_etho()
+summary(dt_curated)
 
+summary_dt <- 
+  rejoin(dt_curated[,
+           .(
+             # this is where the computation happens
+             moving_fraction = mean(moving)
+             ),
+           by=id])
+# remove mice that don't run 1% of the time... also have to do this earlier as well... 
+summary_dt <- summary_dt %>% group_by(id) %>% filter(moving_fraction > 0.01)
+
+ggplot(summary_dt, aes(x=Sex, y=moving_fraction, fill=Sex)) + 
+  geom_boxplot(outlier.colour = NA) +
+  geom_jitter(alpha=.5, width=0.1) +
+  facet_grid( Genotype ~ .) +
+  scale_y_continuous(name= "Fraction of time running",labels = scales::percent)
+
+ggplot(summary_dt, aes(x=Sex, y=moving_fraction, fill=Genotype)) + 
+  geom_boxplot(outlier.colour = NA) +
+  geom_point(position=position_dodge(width=0.75))+
+  scale_y_continuous(name= "Fraction of time running",labels = scales::percent)
 ```
 
 ```{r functions}
@@ -445,6 +488,7 @@ addHoursActive <- function(mouseName, metadata, binSize=10, lightsOnTime=7, ligh
 
   df <- df %>% mutate(expDay = ceiling((t+behavr::hours(lightsOnTime)+10)/behavr::days(1)))
   df <- df %>% mutate(hour = floor((t2)/behavr::hours(1)) %% 24)
+  df <- df %>% mutate(minutes = floor((t2)/behavr::mins(1)) %% 60)
 
   activeFactor <- rep(makeDayActivityWrapper(lightsOnTime, lightsOffTime, startSecs=t[1]), ceiling(max(df$expDay)))[seq(1,length(df$raw))]
   #add active factor to df
@@ -453,6 +497,23 @@ addHoursActive <- function(mouseName, metadata, binSize=10, lightsOnTime=7, ligh
   #add t for behavr
   df$t <- t
   return (df)
+}
+
+addExpPhase <- function(df, phaseNames, phaseStart){
+  # phaseNames = array of names for phases in experiment, set in settings
+  # phaseStart = array of days each phase starts on
+  numDays <- max(df$expDay)
+  phases <- c(phaseNames, "end")
+  phaseStart <- c(phaseStart, numDays+1)
+  currentPhase <- rep(NA, numDays)
+  for(i in seq(1, length(phases)-1)){
+    start <- phaseStart[i]
+    end <- phaseStart[i+1]
+    currentPhase[seq(start, end-1)] <- rep(phases[i], abs(start-end))
+  }
+  phase_df <- data.frame(expDay = 1:numDays, expPhase = currentPhase)
+  df <- merge(x = df, y = phase_df, by = "expDay") 
+  return(df)
 }
 
 makeDayActivityWrapper <- function(lightsOn, lightsOff, startSecs, originalLightsOn=7, binSize=10){
@@ -514,8 +575,8 @@ addTimeChange <- function(df, dayOfChange, dayChangeEnds = F, binSize=10, newlig
   if(dayChangeEnds==F){
     dayChangeEnds <- max(as.numeric(df$expDay))
   }
-  newDays <- rep(newDay, dayChangeEnds-dayofChange)
-  changeTheseTimepoints <- seq((behavr::days(dayofChange))*(1/binSize)+1, (behavr::days(dayChangeEnds))*(1/binSize)-1)
+  newDays <- rep(newDay, dayChangeEnds-dayOfChange)
+  changeTheseTimepoints <- seq((behavr::days(dayOfChange))*(1/binSize)+1, (behavr::days(dayChangeEnds))*(1/binSize)-1)
   if(max(changeTheseTimepoints > nrow(df))){
     #if the timepoints to change extend beyond the number of rows in the dataset, chop off the data
     #this would happen if the last day isn't a full 24 hrs long
