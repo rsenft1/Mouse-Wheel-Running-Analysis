@@ -307,7 +307,7 @@ cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished coll
 
 
 
-```{r graph1, fig.width=10}
+```{r graph1, fig.width=8}
 dt_post <- subset_dt %>% filter(expDay > dayOfChange)
 
 bout_dt <- sleepr::bout_analysis(moving, dt_post)
@@ -357,27 +357,33 @@ for(phase in phases){
   group2 <- new_meta[Genotype %in% geno2, "mean_bout_length"]
   report(t.test(group1, group2))
 # make figure over time, facet by sex
-  ggetho(bout_dt, aes(y=duration / 60, color=Genotype), time_wrap = hours(24)) + 
+  g <- ggetho(bout_dt, aes(y=duration / 60, color=Genotype), time_wrap = hours(24)) + 
       stat_pop_etho() + 
       facet_grid(Sex ~ .) +
       scale_y_continuous(name= "Bout length (min)") +
+      ggtitle(paste("Bout Length during", phase))+
       theme_light()
+  print(g)
   ggsave(here(dir_figs, paste0(phaseforfilename, "_mean_bout_length_over_time.png")))
 # make simple figure bar graph with sex
-  ggplot(new_meta, aes(y=mean_bout_length/60, x=Genotype, color=Sex))+
+  g2<- ggplot(new_meta, aes(y=mean_bout_length/60, x=Genotype, color=Sex))+
       stat_boxplot(geom = "errorbar", width = 0.5, position=position_dodge(0.8))+
       geom_boxplot(position=position_dodge(0.8))+
       geom_jitter(position=position_dodge(0.8), alpha=0.5)+
       scale_y_continuous(name= "Bout length (min)") +
+      ggtitle(paste("Avg. Bout Length by during", phase, "by sex and genotype"))+
       theme_light()
+  print(g2)
   ggsave(here(dir_figs, paste0(phaseforfilename, "_mean_bout_length_boxplot_geno_sex.png")))
 # make simple figure bar graph without sex
-  ggplot(new_meta, aes(y=mean_bout_length/60, x=Genotype, color=Genotype))+
+  g3 <- ggplot(new_meta, aes(y=mean_bout_length/60, x=Genotype, color=Genotype))+
       stat_boxplot(geom = "errorbar", width = 0.5)+
       geom_boxplot()+
       geom_jitter(width=0.2)+
       scale_y_continuous(name= "Bout length (min)") +
+      ggtitle(paste("Avg. Bout Length by during", phase, "by genotype"))+
       theme_light()
+  print(g3)
 # save figure
   ggsave(here(dir_figs, paste0(phaseforfilename, "_mean_bout_length_boxplot_geno.png")))
 }
