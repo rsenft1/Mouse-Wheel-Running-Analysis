@@ -307,7 +307,7 @@ cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished coll
 
 
 
-```{r graph1, fig.width=20}
+```{r graph1, fig.width=10}
 dt_post <- subset_dt %>% filter(expDay > dayOfChange)
 
 bout_dt <- sleepr::bout_analysis(moving, dt_post)
@@ -335,10 +335,52 @@ unique(new_meta[,"Genotype"])
 geno1 = "Vglut3 f/f tom"
 geno2 = "Vglut3 f/f cre"
 
-#bout length
-group1 <- new_meta[Genotype %in% geno1, "mean_bout_length"]
-group2 <- new_meta[Genotype %in% geno2, "mean_bout_length"]
-report(t.test(group1, group2))
+## bout length ##
+
+# for each phase
+for(phase in phases){
+  phaseforfilename <- str_replace_all(phase, ":", "-")
+# subset dt
+  dt_phase <- subset_dt %>% filter(expPhase == phase)
+# bout analysis
+  bout_dt <- sleepr::bout_analysis(moving, dt_phase)
+  bout_dt <- bout_dt[moving == TRUE, -"moving"]
+  stat_bout <- bout_dt[,
+        .(n_bouts = .N,
+          mean_bout_length = mean(duration)),
+        by=id]
+  new_meta <- dt_phase[stat_bout, meta=T]
+# save table
+  write.csv(new_meta, file=here(dir_results, paste0(phaseforfilename,"_mean_bout_length.csv")))
+# compare groups
+  group1 <- new_meta[Genotype %in% geno1, "mean_bout_length"]
+  group2 <- new_meta[Genotype %in% geno2, "mean_bout_length"]
+  report(t.test(group1, group2))
+# make figure over time, facet by sex
+  ggetho(bout_dt, aes(y=duration / 60, color=Genotype), time_wrap = hours(24)) + 
+      stat_pop_etho() + 
+      facet_grid(Sex ~ .) +
+      scale_y_continuous(name= "Bout length (min)") +
+      theme_light()
+  ggsave(here(dir_figs, paste0(phaseforfilename, "_mean_bout_length_over_time.png")))
+# make simple figure bar graph with sex
+  ggplot(new_meta, aes(y=mean_bout_length/60, x=Genotype, color=Sex))+
+      stat_boxplot(geom = "errorbar", width = 0.5, position=position_dodge(0.8))+
+      geom_boxplot(position=position_dodge(0.8))+
+      geom_jitter(position=position_dodge(0.8), alpha=0.5)+
+      scale_y_continuous(name= "Bout length (min)") +
+      theme_light()
+  ggsave(here(dir_figs, paste0(phaseforfilename, "_mean_bout_length_boxplot_geno_sex.png")))
+# make simple figure bar graph without sex
+  ggplot(new_meta, aes(y=mean_bout_length/60, x=Genotype, color=Genotype))+
+      stat_boxplot(geom = "errorbar", width = 0.5)+
+      geom_boxplot()+
+      geom_jitter(width=0.2)+
+      scale_y_continuous(name= "Bout length (min)") +
+      theme_light()
+# save figure
+  ggsave(here(dir_figs, paste0(phaseforfilename, "_mean_bout_length_boxplot_geno.png")))
+}
 
 #n_bouts
 group1 <- new_meta[Genotype %in% geno1, "n_bouts"]
