@@ -14,18 +14,20 @@ This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook built to help you
 
 ### How to use this notebook: 
 
+Set your settings in code chunk #2. Run code chunks 1-3 to set up and create your folder structure. Then dump all the .log files in the folder created by the script in `data` > `01_Raw_data`. Just put all mouse log files in the raw data folder. Then run the remaining code chunks in order. 
+
 When you execute code within the notebook, the results appear beneath the code. You can run code chunks one by one by clicking the *Run* button in the upper right corner of the chunk or by placing your cursor the code chunk and pressing *Ctrl+Shift+Enter*. To run all code chunks, you can *Ctrl+Alt+R* or hit the Run button and select "Run All" or "Restart R and Run all."
 
 ### `r emo::ji("books")` Setup Libraries 
 
 This code block loads necessary libraries and sets up the directory structure necessary for the project. You need to run it, but it is not included in your output notebook.
 
-```{r setup, include=FALSE}
+```{r 1. setup, echo=FALSE}
 
 # Load necessary libraries
 
 ## This package-checking chunk of code is from vikram: https://vbaliga.github.io/verify-that-r-packages-are-installed-and-loaded/
-packages = c("tidyr", "here", "grid", "stringr", "matrixStats", "reshape2", "logr", "dplyr", "vroom", "fs", "progress", "crayon", "devtools", "data.table", "ggplot2","behavr", "ggetho", "report", "sleepr", "zeitgebr")
+packages = c("colorspace", "tidyr", "here", "grid", "stringr", "matrixStats", "reshape2", "logr", "dplyr", "vroom", "fs", "progress", "crayon", "devtools", "data.table", "ggplot2","behavr", "ggetho", "report", "sleepr", "zeitgebr")
 
 ## Now load or install&load all
 package.check <- lapply(
@@ -49,7 +51,7 @@ cat("\n", emo::ji("white_heavy_check_mark"), length((.packages())), "packages lo
 
 * Select your options for your analysis in the code below. T for True, F for False.
 
-```{r options, echo=FALSE}
+```{r 2. options, echo=FALSE}
 # Set these variables for your experiment:
 
 expName <- "Exp1"           # Name for your experiment, include no spaces, just letters, numbers, and underscores
@@ -60,7 +62,7 @@ timeChange <- T             # Was there a time change in this experiment? Defaul
 
 # If you have a time change:
 
-dayOfChange <- 14            # What experimental day the change occurs on (First day of experiment is Day 1)
+dayOfChange <- 14            # What experimental day the time change occurs on (First day of experiment is Day 1). Leave 0 if no time change
 newlightsOnTime <- 7          # If you have a time change, what is the new lights ON time?
 newlightsOffTime <- 12         # If you have a time change, what is the new lights OFF time?
 
@@ -93,7 +95,7 @@ cat("\n\n", emo::ji("white_heavy_check_mark"), emo::ji("gear"), "Settings loaded
 
 ### `r emo::ji("directory")` Make directory structure for the project 
 
-```{r make_dirs, echo=FALSE}
+```{r 3. make_dirs, echo=FALSE}
 
 ## Make directories
 dir_scripts <- here("scripts")                          #where the scripts are
@@ -120,7 +122,7 @@ cat("\n", emo::ji("white_heavy_check_mark"), "Made folder structure here:",emo::
 ### `r emo::ji("broom")` Organize, Load, and Clean Data
 
 This step organizes the mouse .log files into 1 folder per mouse, then loads the data into R and creates a metadata table from the data frames.
-```{r LoadData, include=FALSE}
+```{r 4. Load data, include=FALSE}
 ## organize .log files into 1 folder per animal
 source(here(dir_scripts, "01_organize_data_files.R")) 
 
@@ -130,28 +132,28 @@ mouseNames <- list.dirs(dir_orgData, full.names = F)[-1]
 nMice <- length(mouseNames)
 headerLength <- length(header)
 ## This gets basic running data for each mouse
-metadata <- data.frame(matrix(NA_character_, nrow = headerLength, ncol = nMice))
+full_metadata <- data.frame(matrix(NA_character_, nrow = headerLength, ncol = nMice))
 
 pb <- progress_bar$new(total=nMice)
 idx <- 1
 for (mouse in mouseNames){
   files <- fs::dir_ls(dir_orgData, glob = paste0("*", mouse,"*log"), recurse=T)
   df <- vroom(files, delim="/t", col_names="raw", skip=headerLength, show_col_types = FALSE)
-  metadata[idx] <- vroom(files[1], delim="/t", col_names=mouse, n_max=headerLength, show_col_types = FALSE)
+  full_metadata[idx] <- vroom(files[1], delim="/t", col_names=mouse, n_max=headerLength, show_col_types = FALSE)
   assign(mouse, df)
   pb$tick()
   idx <- idx+1
 }
 #Fix metadata table
-metadata <- transpose(metadata)
-colnames(metadata) <- header
+full_metadata <- transpose(full_metadata)
+colnames(full_metadata) <- header
 
 #For each column in metadata, keep only the string after ": ", no change if there's no ": " To deal with style of output on second Raspberry Pi
-metadata <- metadata %>% mutate_all(~sub(".*: ", "", .))
+full_metadata <- full_metadata %>% mutate_all(~sub(".*: ", "", .))
 #make the id for each mouse
-metadata <- metadata %>% mutate(id = paste(MouseName, expName, sep="|"))
+full_metadata <- full_metadata %>% mutate(id = paste(MouseName, expName, sep="|"))
 #make metadata into a data table
-metadata <- data.table(metadata)
+full_metadata <- data.table(full_metadata)
 
 cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished loading ',nMice,' log files ')), emo::ji("mouse"))
 ```
@@ -169,9 +171,10 @@ This chunk takes  your data for each mouse and adds additional variables, like s
 * `t` (time in seconds since the first lights ON (can precede the start of the recording)
 * `expPhase` (which experimental phase each time point belongs to)
 * `moving` (whether that individual animal moved during that 10 second period))
-```{r Add columns to data, include=FALSE}
+
+```{r 5. Add columns to data, include=FALSE}
 #Source functions
-#ADD HERE
+source(here(dir_scripts, "notebook_functions.R")) 
 
 pb <- progress_bar$new(total=nMice)
 for (mouse in mouseNames){
@@ -180,7 +183,7 @@ for (mouse in mouseNames){
   df <- addSpeedTime(df)
   assign(mouse, df)
 
-  df <- addHoursActive(mouse, metadata)
+  df <- addHoursActive(mouse, full_metadata)
   assign(mouse, df)
   
   df <- addExpPhase(df, phases, phaseStart)
@@ -198,43 +201,46 @@ cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished addi
 
 ```
 
-```{r Make behavr table, results = 'asis'}
-
-#Pick days to build graph over
-startDay <- 5
-endDay <- 30
+```{r 6. Make behavr table, results = 'asis', echo=FALSE}
 
 #make behavr table
 data <- data.table::rbindlist(mget(mouseNames))
 rm(list = ls()[ls() %in% mouseNames]) #remove the mouse dfs since we don't need them anymore
-setkey(metadata, id)
+setkey(full_metadata, id)
 setkey(data, id)
-dt <- behavr(data, metadata)
-dt[, moving:= speed>0] #if speed is greater than 0, moving=TRUE
-summary(dt)
-metadata
+full_dt <- behavr(data, full_metadata)
+full_dt[, moving:= speed>0] #if speed is greater than 0, moving=TRUE
+summary(full_dt)
 
 clean_dt <- 
-  rejoin(dt[,
-           .(
-             # this is where the computation happens
+  rejoin(full_dt[,
+           .(# this is where the computation happens
              moving_fraction = mean(moving)
              ),
            by=id])
 
 # remove mice that don't run 1% of the time... also have to do this earlier as well... 
 removed <- clean_dt %>% group_by(id) %>% filter(moving_fraction <= 0.01) %>% pull(MouseName)
-clean_dt <- clean_dt %>% group_by(id) %>% filter(moving_fraction > 0.01)
+#clean_dt <- clean_dt %>% group_by(id) %>% filter(moving_fraction > 0.01)
+full_metadata<- merge(x = full_metadata, y = clean_dt[ , c("id", "moving_fraction")], by=c("id"), all.x=TRUE)
+full_metadata <- full_metadata[,c("Removed"):= full_metadata[["moving_fraction"]]<=0.01]
+metadata <- full_metadata[!(MouseName %in% removed),]
+dt_subset <- full_dt[!(xmv(MouseName) %in% removed),]
+setkey(dt_subset, id)
+setkey(metadata, id)
+dt <- behavr(dt_subset, metadata)
 
-subset_dt <- dt[id %in% clean_dt$id,]
 cat(emo::ji("white_heavy_check_mark"), length(removed), " mice were removed because they ran **less than 1%** of the experiment: ", white$bgRed$bold(paste(removed)), " \n")
+
+#remove variables we don't need anymore
+remove(data, df, clean_dt)
 
 ```
 
 
 ### `r emo::ji("calendar")` Experimental timeline
 
-```{r Data phases, echo=FALSE, fig.height=2, fig.width=6}
+```{r 7. Add and display experiment phases, echo=FALSE, fig.height=2, fig.width=6}
 #Source functions
 
 phaseDuration <- rep(0,length(phases))
@@ -243,7 +249,7 @@ for(i in seq(1, length(phases)-1)){
 }
 
 phase_df <- data.frame(phase = phases, start = phaseStart, duration=phaseDuration)
-phase_df$duration[length(phases)] <- max(df$expDay)-phase_df$start[length(phases)]
+phase_df$duration[length(phases)] <- max(dt$expDay)-phase_df$start[length(phases)]
 
 # Display approx. experimental timeline
 ggplot(phase_df, aes(fill=factor(phase, levels=rev(phases[1:(length(phases))])), x=duration, y="Experimental timeline")) + 
@@ -260,12 +266,19 @@ ggplot(phase_df, aes(fill=factor(phase, levels=rev(phases[1:(length(phases))])),
 
 ### `r emo::ji("floppy")` Save tables 
 
-```{r Save tables of hourly data, include=FALSE}
+```{r 8. Save tables of metadata and binned data (OPTIONAL), include=FALSE}
 
+# Would you like to save HOURLY data? 
+saveHourly <- FALSE
+
+# Would you like to save data every X min? (default True)
+saveBinned <- TRUE
+desired_bin <- 5 # min
+
+#######################
 #Save Metadata table
-write.csv(metadata, file=here(dir_results, "exp_metdata.csv"))
+write.csv(full_metadata, file=here(dir_results, "exp_metdata.csv"))
 
-saveHourly <- F
 
 #Save hourly data for every mouse
 if (saveHourly){
@@ -277,20 +290,14 @@ if (saveHourly){
     write.csv(df, file=here(dir_results,"Hourly_data", filename), row.names = F)
     pb$tick()
   }
+  cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished summarizing hourly data for ',nMice,' mice ')), emo::ji("mouse"))
 }
 
-cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished summarizing hourly data for ',nMice,' mice ')), emo::ji("mouse"))
-```
-
-```{r Save speed every arbitrary num of minutes, include=FALSE}
-
-#Save data every x min for every mouse
-
-desired_bin <- 5 # min
-
-pb <- progress_bar$new(total=nMice)
-for (mouse in mouseNames){
-  df <- get(mouse)
+if (saveBinned){
+  pb <- progress_bar$new(total=nMice)
+for (eachid in metadata[,id]){
+  df <- full_dt[id==eachid,]
+  mouse <- sub("\\|.*", "", eachid)
   t_min <- min(df$t)/behavr::mins(1)
   t_max <- max(df$t)/behavr::mins(1)
   df <- data.frame("MeanSpeed"=tapply(df$speed, cut(df$t/behavr::mins(1), seq(t_min, t_max, by=desired_bin)), mean), "ExpDay"=tapply(df$expDay, cut(df$t/behavr::mins(1), seq(t_min, t_max, by=desired_bin)), median))
@@ -299,49 +306,24 @@ for (mouse in mouseNames){
   pb$tick()
 }
 
-cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished collapsing data into ',desired_bin,' minute bins (function = mean) for ',nMice,' mice ')), emo::ji("mouse"))
+cat('\n', emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished collapsing data into ',desired_bin,' minute bins (function = mean) for ',nMice,' mice ')), emo::ji("mouse"))
+}
+
+remove(full_dt)
 
 ```
 
+
 ### `r emo::ji("chart_increasing")` Make graphs 
 
-
-
-```{r graph1, fig.width=8}
-dt_post <- subset_dt %>% filter(expDay > dayOfChange)
-
-bout_dt <- sleepr::bout_analysis(moving, dt_post)
-bout_dt <- bout_dt[moving == TRUE, -"moving"]
-
-ggetho(bout_dt, aes(y=duration / 60, colour=Genotype), time_wrap = hours(24)) + 
-      stat_pop_etho() + 
-      facet_grid(Sex ~ .) +
-      scale_y_continuous(name= "Bout length (min)") +
-      theme_light()
-
-stat_bout <- bout_dt[,
-        .(n_bouts = .N,
-          mean_bout_length = mean(duration)),
-        by=id]
-
-new_meta <- dt[stat_bout, meta=T]
-# set new metadata
-setmeta(dt, new_meta)
-head(dt[meta=T])
-
-#t-test 
-#group options
-unique(new_meta[,"Genotype"])
-geno1 = "Vglut3 f/f tom"
-geno2 = "Vglut3 f/f cre"
-
+```{r 9. Bout analysis, fig.width=8, echo=FALSE}
 ## bout length ##
 
 # for each phase
 for(phase in phases){
   phaseforfilename <- str_replace_all(phase, ":", "-")
 # subset dt
-  dt_phase <- subset_dt %>% filter(expPhase == phase)
+  dt_phase <- dt %>% filter(expPhase == phase)
 # bout analysis
   bout_dt <- sleepr::bout_analysis(moving, dt_phase)
   bout_dt <- bout_dt[moving == TRUE, -"moving"]
@@ -349,24 +331,25 @@ for(phase in phases){
         .(n_bouts = .N,
           mean_bout_length = mean(duration)),
         by=id]
-  new_meta <- dt_phase[stat_bout, meta=T]
+  phase_meta <- dt_phase[stat_bout, meta=T]
 # save table
-  write.csv(new_meta, file=here(dir_results, paste0(phaseforfilename,"_mean_bout_length.csv")))
+  write.csv(phase_meta, file=here(dir_results, paste0(phaseforfilename,"_mean_bout_length.csv")))
 # compare groups
-  group1 <- new_meta[Genotype %in% geno1, "mean_bout_length"]
-  group2 <- new_meta[Genotype %in% geno2, "mean_bout_length"]
-  report(t.test(group1, group2))
+#  group1 <- phase_meta[Genotype %in% geno1, "mean_bout_length"]
+#  group2 <- phase_meta[Genotype %in% geno2, "mean_bout_length"]
+#  report(t.test(group1, group2))
 # make figure over time, facet by sex
-  g <- ggetho(bout_dt, aes(y=duration / 60, color=Genotype), time_wrap = hours(24)) + 
+  g1 <- ggetho(bout_dt, aes(y=duration / 60, color=Genotype), time_wrap = hours(24)) + 
       stat_pop_etho() + 
       facet_grid(Sex ~ .) +
       scale_y_continuous(name= "Bout length (min)") +
       ggtitle(paste("Bout Length during", phase))+
       theme_light()
-  print(g)
+  print(g1)
   ggsave(here(dir_figs, paste0(phaseforfilename, "_mean_bout_length_over_time.png")))
+  
 # make simple figure bar graph with sex
-  g2<- ggplot(new_meta, aes(y=mean_bout_length/60, x=Genotype, color=Sex))+
+  g2<- ggplot(phase_meta, aes(y=mean_bout_length/60, x=Genotype, color=Sex))+
       stat_boxplot(geom = "errorbar", width = 0.5, position=position_dodge(0.8))+
       geom_boxplot(position=position_dodge(0.8))+
       geom_jitter(position=position_dodge(0.8), alpha=0.5)+
@@ -374,12 +357,13 @@ for(phase in phases){
       ggtitle(paste("Avg. Bout Length by during", phase, "by sex and genotype"))+
       theme_light()
   print(g2)
+  
   ggsave(here(dir_figs, paste0(phaseforfilename, "_mean_bout_length_boxplot_geno_sex.png")))
 # make simple figure bar graph without sex
-  g3 <- ggplot(new_meta, aes(y=mean_bout_length/60, x=Genotype, color=Genotype))+
+  g3 <- ggplot(phase_meta, aes(y=mean_bout_length/60, x=Genotype, color=Genotype))+
       stat_boxplot(geom = "errorbar", width = 0.5)+
-      geom_boxplot()+
-      geom_jitter(width=0.2)+
+      geom_boxplot(outlier.shape = NA)+
+      geom_jitter(alpha=0.5, width=0.1)+
       scale_y_continuous(name= "Bout length (min)") +
       ggtitle(paste("Avg. Bout Length by during", phase, "by genotype"))+
       theme_light()
@@ -388,24 +372,18 @@ for(phase in phases){
   ggsave(here(dir_figs, paste0(phaseforfilename, "_mean_bout_length_boxplot_geno.png")))
 }
 
-#n_bouts
-group1 <- new_meta[Genotype %in% geno1, "n_bouts"]
-group2 <- new_meta[Genotype %in% geno2, "n_bouts"]
-report(t.test(group1, group2))
-
 ```
 
-```{r}
+```{r 10. Average Day graphs, echo=FALSE}
 #mean +/- 1 SE
+startDay=1
+endDay=max(dt$expDay)
 
 ggetho(dt, aes(z=speed), timewrap = behavr::hours(24)) +
       scale_y_discrete(expand=expansion(add = c(1.4)))+
       stat_tile_etho() +
       stat_ld_annotations() +
-            # on top of it, a second layer that
-            # starts at day 7 thoughout day 30,
-            # and where L colour is grey
-            stat_ld_annotations(x_limits = behavr::days(c(14,30)),
+      stat_ld_annotations(x_limits = behavr::days(c(dayOfChange,endDay-1)),
                                 ld_colours = c("grey", "black"), l_duration=behavr::hours(5))
 
 ggetho(dt, aes(y=speed, color=Genotype), time_wrap = behavr::hours(24)) +
@@ -414,7 +392,7 @@ ggetho(dt, aes(y=speed, color=Genotype), time_wrap = behavr::hours(24)) +
             # on top of it, a second layer that
             # starts at day 7 thoughout day 30,
             # and where L colour is grey
-      stat_ld_annotations(x_limits = behavr::days(c(14,30)),
+      stat_ld_annotations(x_limits = behavr::days(c(dayOfChange,endDay-1)),
                                 ld_colours = c("grey", "black"), l_duration=behavr::hours(5))
 
 ggetho(dt, aes(y=speed, color=Genotype)) +
@@ -423,10 +401,10 @@ ggetho(dt, aes(y=speed, color=Genotype)) +
             # on top of it, a second layer that
             # starts at day 7 thoughout day 30,
             # and where L colour is grey
-            stat_ld_annotations(x_limits = behavr::days(c(14,30)),
+            stat_ld_annotations(x_limits = behavr::days(c(dayOfChange,endDay-1)),
                                 ld_colours = c("grey", "black"), l_duration=behavr::hours(5))
-ggetho(dt,
-              aes(z = speed),
+
+ggetho(dt,aes(z = speed),
               multiplot = 2,
               multiplot_period = behavr::hours(24))+
         stat_bar_tile_etho()+
@@ -435,245 +413,159 @@ ggetho(dt,
             # starts at day 14 thoughout day 30,
             # and where L colour is grey
             stat_ld_annotations(x_limits = behavr::days(c(1,2)),
-                                ld_colours = c("grey", "black"), l_duration=behavr::hours(5))
+                                ld_colours = c("grey", "black"), l_duration=behavr::hours(5), position=position_nudge(x=0, y=-2))+
+    scale_y_discrete(labels=rev(seq(startDay, endDay-1)))
+
+    scale_y_continuous(minor_breaks = seq(startDay, endDay, 0.5))
 
 ```
 
-```{r Actogram facet, fig.height=10}
 
+```{r 11. Raw activity ind., fig.width=15, fig.height=4, echo=FALSE}
+abbrev_mice <- metadata$MouseName
+for (eachMouse in abbrev_mice){
+  geno <- metadata[MouseName==eachMouse, Genotype]
+  sex <- metadata[MouseName==eachMouse, Sex]
+  p <- ggetho(dt[xmv(MouseName)==eachMouse,], aes(y=speed, color=id)) +
+          stat_ld_annotations(height=1, alpha=0.2, outline = NA, x_limits = behavr::days(c(0,dayOfChange-1))) +
+                # on top of it, a second layer that
+                # starts at day 7 thoughout day 30,
+                # and where L colour is grey
+          stat_ld_annotations(height=1, alpha=0.2, outline=NA, x_limits = behavr::days(c(dayOfChange-1,endDay-1)),l_duration=behavr::hours(5))+
+          stat_pop_etho() +
+          scale_color_manual(values=c("blue4"))+
+          ylab("Speed (meters/min)")+
+          coord_cartesian(expand=FALSE)+
+          theme_classic()+
+          theme(legend.position = "None")+
+    labs(title=paste("Raw activity for mouse", eachMouse),
+                subtitle=substitute(italic(x)~sex, list(x=geno, sex=sex)))
+  print(p)
+  ggsave(paste0(eachMouse,"_rawActivity.png"), plot=p, path=dir_figs)
+}
+
+```
+
+
+```{r 12. Polar activity by genotype, echo=FALSE}
+for (phase in phase_df$phase){
+  dt_sub <- dt[expPhase==phase,]
+  p <- ggetho(dt_sub, aes(y=speed, color=Genotype), time_wrap = days(1)) +
+  stat_ld_annotations(height=15,
+                              alpha=.2,
+                              x_limits = c(0, behavr::days(1)),
+                              outline = NA) +
+  stat_ld_annotations(height=15,
+                              alpha=.2,
+                              x_limits = c(0, behavr::days(1)),
+                              ld_colours = c("grey", "black"), l_duration=behavr::hours(5)) +
+  stat_pop_etho() +
+  ylim(0,18)+
+  coord_polar()+
+  ggtitle(paste("Activity during", phase))
+  ggsave(paste0(phase,"_polar.png"), plot=p, path=dir_figs)
+  print(p)
+}
+
+
+```
+
+
+#### Actogram graph for all mice
+
+```{r 13. Actogram facet, fig.height=10, echo=FALSE}
 p <- ggetho(dt, aes(z = speed), multiplot = 2, multiplot_period = behavr::hours(24))+
   stat_bar_tile_etho()+
   stat_ld_annotations() +
-  stat_ld_annotations(x_limits = behavr::days(c(1,2)),
-                                ld_colours = c("grey", "black"), l_duration=behavr::hours(5))+
+  stat_ld_annotations() +
+            # on top of it, a second layer that
+            # starts at day 14 thoughout day 30,
+            # and where L colour is grey
+            stat_ld_annotations(x_limits = behavr::days(c(1,2)),
+                                ld_colours = c("grey", "black"), l_duration=behavr::hours(5), position=position_nudge(x=0, y=-2))+
+  #scale_y_discrete(labels=rev(seq(startDay, endDay-1)))+
 
-  facet_wrap( ~ Genotype + MouseName + Sex, ncol=4, labeller = label_wrap_gen(multi_line=FALSE))
+  facet_wrap( ~ MouseName + Genotype + Sex, ncol=4, labeller = label_wrap_gen(multi_line=FALSE, width=50))+
+  scale_y_discrete(labels=rev(everyThird(seq(startDay, endDay-1))))+
+  xlab("Day")+
+  theme(text = element_text(size = 10))
 
 
-
-everyThird <- function(x){
-  x[seq(2, length(x), 3)] <- ""
-  x[seq(3, length(x), 3)] <- ""
-  x
+if(timeChange && dayOfChange!=0){
+  intercept <- endDay-dayOfChange-0.5
+  p= p+  geom_hline(yintercept=intercept, color="tomato", linetype="solid")
 }
-intercept <- endDay-dayOfChange-0.5
 
-p+scale_y_discrete(labels=rev(everyThird(seq(startDay-1, endDay-1))))+
-  geom_hline(yintercept=intercept, color="tomato", linetype="solid")
+print(p)
+ggsave("all_actograms.png", plot=p, path=dir_figs)
 
 ```
 
 
-```{r PERIODOGRAM}
+```{r 14. Periodogram, echo=FALSE}
 
-per_xsq_dt <- periodogram(speed, 
-                        dt,
+for (phase in phase_df$phase){
+  dt_sub <- dt[expPhase==phase,]
+  phaseforfilename <- str_replace_all(phase, ":", "-")
+  per_xsq_dt <- periodogram(speed, 
+                        dt_sub,
                         FUN = chi_sq_periodogram)
-per_xsq_dt <- find_peaks(per_xsq_dt)
-ggperio(per_xsq_dt) + geom_line(aes(group = id, color=Genotype))
-ggperio(per_xsq_dt, aes(
-                  y = power - signif_threshold,
-                  color=Genotype)) + 
-                  stat_pop_etho()
+  per_xsq_dt <- find_peaks(per_xsq_dt)
+  # ggperio(per_xsq_dt) + geom_line(aes(group = id, color=Genotype)) # if you want to plot ind. lines.
+  g <- ggperio(per_xsq_dt, aes(
+                    y = power - signif_threshold,
+                    color=Genotype)) + 
+                    stat_pop_etho() +
+                    ggtitle(paste("Periodogram during", phase))
+
+  print(g)
+  ggsave(here(dir_figs, paste0(phaseforfilename, "_periodogram.png")))
+}
+
 
 ```
 
 
-```{r Mean bout length}
-dt_curated <- dt
-dt_curated <- dt_curated[t %between% c(behavr::days(14), behavr::days(36))]
+```{r 15. Fraction of time running, echo=FALSE}
+hex_colors <- c("#f8766d", "#7cae00", "#00bfc4", "#c77cff")
 
-summary(dt_curated)
-
-summary_dt <- 
-  rejoin(dt_curated[,
+for (phase in phase_df$phase){
+  dt_sub <- dt[expPhase==phase,]
+  phaseforfilename <- str_replace_all(phase, ":", "-")
+  summary_dt <- rejoin(dt_sub[,
            .(
              # this is where the computation happens
-             moving_fraction = mean(moving)
+             phase_moving_fraction = mean(moving)
              ),
            by=id])
-# remove mice that don't run 1% of the time... also have to do this earlier as well... 
-summary_dt <- summary_dt %>% group_by(id) %>% filter(moving_fraction > 0.01)
-
-ggplot(summary_dt, aes(x=Sex, y=moving_fraction, fill=Sex)) + 
-  geom_boxplot(outlier.colour = NA) +
-  geom_jitter(alpha=.5, width=0.1) +
-  facet_grid( Genotype ~ .) +
-  scale_y_continuous(name= "Fraction of time running",labels = scales::percent)
-
-ggplot(summary_dt, aes(x=Sex, y=moving_fraction, fill=Genotype)) + 
-  geom_boxplot(outlier.colour = NA) +
-  geom_point(position=position_dodge(width=0.75))+
-  scale_y_continuous(name= "Fraction of time running",labels = scales::percent)
-```
-
-```{r functions}
-
-
-addSpeedTime <- function(df, binSize=10){ # binSize in seconds
-  # conversion factor for meter/min, 0.0625 is radius in meters (=6.25 cm)
-  df <- df %>% mutate(speed = raw*2*pi*0.0625 *60) # not bin size dependent 	
-  
-  # create column for elapsed time in days, beginning of experiment = 0
-  df <- df %>% mutate(elapsedDays = (1:length(speed)) / 3600 * binSize / 24) 
-  
-  return(df)
-}
-
-addHoursActive <- function(mouseName, metadata, binSize=10, lightsOnTime=7, lightsOffTime= 19){
-  # This function adds columns to the df for clock time and subjective/relative time. 
-  # Clock time is relative to the local midnight (midnight = 0).
-  # Subjective/relative time is relative to the beginning of the first light cycle (i.e., first
-  # lights ON) on the first experimental day (this typically happens before the mice are put in
-  # the cages). 
-  
-  # Variables:
-  # mouseName:     str, name of mouse(e.g., "C676")
-  # metadata:      dataframe, the metadata dataframe for the experiment
-  # binSize:       int, how frequently measurements are taken in seconds
-  # lightsOnTime:  int, hour corresponding to lights on
-  # lightsOffTime: int, hour corresponding to lights off
-  
-  # Get the time the experiment started recording from the mouse metadata table
-  df <- get(mouseName)
-  myTime <- metadata %>% filter(MouseName==mouseName) %>% select(StartTime) %>% pull()
-  currentHour <- as.numeric(substring(myTime,1,2))
-  currentExpHour <- 1
-  currentMinute <- as.numeric(substring(myTime,4,5))
-  currentSeconds <- behavr::hours(currentHour)+behavr::mins(currentMinute)
-  nRows <- length(df$raw)
-  
-  # set t time (in seconds) relative to lights on, set such that the last lights on before starting measurements is t=0
-  t <- seq(currentSeconds-behavr::hours(lightsOnTime), nRows*10+currentSeconds-10-behavr::hours(lightsOnTime), by=binSize)
-  t2 <- seq(currentSeconds, nRows*10+currentSeconds-10, by=binSize)
-
-  df <- df %>% mutate(expDay = ceiling((t+behavr::hours(lightsOnTime)+10)/behavr::days(1)))
-  df <- df %>% mutate(hour = floor((t2)/behavr::hours(1)) %% 24)
-  df <- df %>% mutate(minutes = floor((t2)/behavr::mins(1)) %% 60)
-
-  activeFactor <- rep(makeDayActivityWrapper(lightsOnTime, lightsOffTime, startSecs=t[1]), ceiling(max(df$expDay)))[seq(1,length(df$raw))]
-  #add active factor to df
-  df$activeFactor <- activeFactor
-  
-  #add t for behavr
-  df$t <- t
-  return (df)
-}
-
-addExpPhase <- function(df, phaseNames, phaseStart){
-  # phaseNames = array of names for phases in experiment, set in settings
-  # phaseStart = array of days each phase starts on
-  numDays <- max(df$expDay)
-  phases <- c(phaseNames, "end")
-  phaseStart <- c(phaseStart, numDays+1)
-  currentPhase <- rep(NA, numDays)
-  for(i in seq(1, length(phases)-1)){
-    start <- phaseStart[i]
-    end <- phaseStart[i+1]
-    currentPhase[seq(start, end-1)] <- rep(phases[i], abs(start-end))
-  }
-  phase_df <- data.frame(expDay = 1:numDays, expPhase = currentPhase)
-  df <- merge(x = df, y = phase_df, by = "expDay") 
-  return(df)
-}
-
-makeDayActivityWrapper <- function(lightsOn, lightsOff, startSecs, originalLightsOn=7, binSize=10){
-  #lightsOn = hour lights come on, relative to midnight = 0
-  #lightsOff = hour lights go off, relative to midnight = 0
-  #binSize = length of time between measurements, in seconds
-  #startSecs = starting time for recording data, in seconds
-  print(startSecs)
-  startHour <- startSecs/behavr::hours(1)+originalLightsOn # Start time in hrs
-  print(startHour)
-  if(min(lightsOn, lightsOff)==lightsOn){
-    if(0 < lightsOn){
-      start <- T
-    }else{
-      print("start is false")
-      start <- F
-      }
-  }
-  if(min(lightsOn, lightsOff)==lightsOff){
-    if(0 < lightsOff){
-      start <- F
-    }else
-      {start <- T}
-  }
-  print(start)
-  first <- min(lightsOn, lightsOff)
-  second <- abs(lightsOn-lightsOff)
-  third <- 24 - sum(first, second)
-  makeDayActivity(hours=c(first, second, third), start=start, startSecs=startSecs+behavr::hours(originalLightsOn), binSize=binSize)
-}
-
-makeDayActivity <- function(hours, startSecs, start=T, binSize=10){
-  #hours = vector of hours alternating active and inactive (e.g., c(7, 12, 5))
-  #start = whether to start the day (midnight) in the active or inactive state, T=start active
-  #binSize = length of time between measurements, in seconds
-
-  if (sum(hours) !=24){
-    stop(message=paste("Hours must sum to 24. They currently sum to",sum(hours)))
-  }
-  activeState <- start
-  myDay <- c()
-  for(h in hours){
-    myDay<- append(myDay, rep(activeState, behavr::hours(h)*1/binSize))
-    activeState <- !activeState
-  }
-  myDay <- rep(myDay, 2) #double up the day
-  start <- startSecs/binSize+1 # Start time in hrs
-
-  #start <- (startSecs/binSize)+1 #get index
-  myDay<- myDay[seq(start, start+(behavr::days(1)/binSize)-1)]
-  return(myDay)
-}
-
-
-addTimeChange <- function(df, dayOfChange, dayChangeEnds = F, binSize=10, newlightsOnTime=newlightsOnTime, newlightsOffTime= newlightsOffTime){
-  #binSize = length of time between measurements, in seconds
-  currentSeconds <- df$t[1]
-  newDay <- makeDayActivityWrapper(newlightsOnTime, newlightsOffTime, startSecs=currentSeconds)
-  if(dayChangeEnds==F){
-    dayChangeEnds <- max(as.numeric(df$expDay))
-  }
-  newDays <- rep(newDay, dayChangeEnds-dayOfChange)
-  changeTheseTimepoints <- seq((behavr::days(dayOfChange))*(1/binSize)+1, (behavr::days(dayChangeEnds))*(1/binSize)-1)
-  if(max(changeTheseTimepoints > nrow(df))){
-    #if the timepoints to change extend beyond the number of rows in the dataset, chop off the data
-    #this would happen if the last day isn't a full 24 hrs long
-    subsetindex <- c(changeTheseTimepoints <= nrow(df))
-    changeTheseTimepoints <- changeTheseTimepoints[subsetindex]
-    newDays <- newDays[subsetindex]
-  }
-  df$activeFactor[changeTheseTimepoints] <- newDays
-  return(df)
-}
-
-#4. function to get boundaries of on/off light cycle
-#MUST ADD SOMETHING TO BE ABLE TO MODIFY LIGHT CYCLE PARTWAY THROUGH AN EXPERIMENT
-getlightCycle <- function(df){
-  #use activeFactor to found boundaries for graphing output later:
-  activeInfo <- rle(df$activeFactor)
-  activeLengths <- unlist(activeInfo[1])
-  whichCycle <- unlist(activeInfo[2])
-  cycleBorders <- cumsum(activeLengths)
-  activeStart <- cycleBorders[whichCycle==0]+1 # 1 after the inactive cycle ends
-  activeEnd <- cycleBorders[whichCycle==1]
-  #plot.data <- data.frame(start.points=lightsOff, end.points=lightsOn)
-  if(whichCycle[1]==1){ #if we start in the active cycle
-    activeStart <- append(0,activeStart) #first start should be beginning of the recording
-  }
-  if(whichCycle[length(whichCycle)]==0){ #if we end in the light cycle
-    activeStart <- head(activeStart,-1) #remove the last 'start' which will be the last time point
-  }
-  plot.data <- data.frame(start.points=activeStart, end.points=activeEnd)
+  write.csv(summary_dt, file=here(dir_results, paste0(phaseforfilename,"_percent_time_running.csv")))
+  g1 <- ggplot(summary_dt, aes(x=Sex, y=phase_moving_fraction, fill=Genotype)) + 
+    geom_boxplot(outlier.colour = NA) +
+    geom_point(position=position_dodge(width=0.75), aes(color=Genotype), alpha=0.5)+
+    scale_fill_manual(values = hex_colors) + 
+    scale_color_manual(values = darken(hex_colors, amount = 0.5))+
+    scale_y_continuous(name= "Fraction of time running",labels = scales::percent)+
+    ggtitle(paste("Percent time running during", phase, "by sex and genotype"))+
+    theme_classic()
+  print(g1)
+  ggsave(here(dir_figs, paste0(phaseforfilename, "_percent_time_running_bySexGeno.png")))
+  g2 <- ggplot(summary_dt, aes(x=Genotype, y=phase_moving_fraction, fill=Genotype)) + 
+    geom_boxplot(outlier.colour = NA) +
+    geom_jitter(width=0.1, aes(color=Genotype), alpha=0.5, size=2)+
+    scale_fill_manual(values = hex_colors) + 
+    scale_color_manual(values = darken(hex_colors, amount = 0.5))+
+    scale_y_continuous(name= "Fraction of time running",labels = scales::percent)+
+    ggtitle(paste("Percent time running during", phase, "by genotype"))+
+    theme_classic()
+  print(g2)
+  ggsave(here(dir_figs, paste0(phaseforfilename, "_percent_time_running_byGeno.png")))
 }
 
 ```
 
 ### `r emo::ji("bookmark_tabs")` Methods and References
 
-```{r Ref, echo=FALSE, results = 'asis'}
+```{r 16. Ref, echo=FALSE, results = 'asis'}
 cat(report(sessionInfo()))
 ```
 
