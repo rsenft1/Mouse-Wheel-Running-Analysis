@@ -44,7 +44,7 @@ devtools::install_github("hadley/emo")
 #This code can be used to update all your packages: 
 # update.packages(ask = FALSE)
 
-cat("\n", emo::ji("white_heavy_check_mark"), length((.packages())), "packages loaded")
+cat("\n", emo::ji("white_heavy_check_mark"),"1.", length((.packages())), "packages loaded")
 ```
 
 ### `r emo::ji("gear")` Options for analysis -- <span style="color: red;">USER INPUT REQUIRED</span> 
@@ -92,7 +92,7 @@ if(timeChange){
       str_pad(paste("Lights ON", emo::ji("sunrise"), ":"), 22, "left"), str_pad(lightsOnTime, 2, "right"), emo::ji("right_arrow"), newlightsOnTime, "\n",
       str_pad(paste("Lights OFF", emo::ji("night with stars"), ":"), 22, "left"), str_pad(lightsOffTime, 2, "right"), emo::ji("right_arrow"), newlightsOffTime)
 }
-cat("\n\n", emo::ji("white_heavy_check_mark"), emo::ji("gear"), "Settings loaded")
+cat("\n\n", emo::ji("white_heavy_check_mark"), "2.", emo::ji("gear"), "Settings loaded")
 
 ```
 
@@ -119,7 +119,7 @@ logpath <- here(dir_doc, "log")
 lf <- log_open(logpath, show_notes = T, autolog = T)
 log_print(sessionInfo(), console = F)
 
-cat("\n", emo::ji("white_heavy_check_mark"), "Made folder structure here:",emo::ji("open_file_folder"), here())
+cat("\n", emo::ji("white_heavy_check_mark"), "3. Made folder structure here:",emo::ji("open_file_folder"), here())
 ```
 
 ### `r emo::ji("broom")` Organize, Load, and Clean Data
@@ -128,6 +128,7 @@ This step organizes the mouse .log files into 1 folder per mouse, then loads the
 ```{r 4. Organize data, include=FALSE}
 ## organize .log files into 1 folder per animal
 source(here(dir_scripts, "01_organize_data_files.R")) 
+cat("\n", emo::ji("white_heavy_check_mark"), "4. Data organized")
 ```
 If you'd like to remove animals, now is the time to remove those folders from data > 02_Organized_data. 
 
@@ -161,7 +162,7 @@ full_metadata <- full_metadata %>% mutate(id = paste(MouseName, expName, sep="|"
 #make metadata into a data table
 full_metadata <- data.table(full_metadata)
 
-cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished loading ',nMice,' log files ')), emo::ji("mouse"))
+cat(emo::ji("white_heavy_check_mark"), "5.", white$bgGreen$bold(paste0(' Finished loading ',nMice,' log files ')), emo::ji("mouse"))
 ```
 
 ### `r emo::ji("input_numbers")` Add columns to data 
@@ -203,7 +204,7 @@ for (mouse in mouseNames){
   cat("\n")
 }
 
-cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished adding data for ',nMice,' mice ')), emo::ji("mouse"))
+cat(emo::ji("white_heavy_check_mark"), "6.",white$bgGreen$bold(paste0(' Finished adding data for ',nMice,' mice ')), emo::ji("mouse"))
 
 ```
 
@@ -236,7 +237,7 @@ setkey(dt_subset, id)
 setkey(metadata, id)
 dt <- behavr(dt_subset, metadata)
 
-cat(emo::ji("white_heavy_check_mark"), length(removed), " mice were removed because they ran **less than 1%** of the experiment: ", white$bgRed$bold(paste(removed)), " \n")
+cat(emo::ji("white_heavy_check_mark"), "7.", length(removed), " mice were removed because they ran **less than 1%** of the experiment: ", white$bgRed$bold(paste(removed)), " \n")
 
 #remove variables we don't need anymore
 remove(data, df, clean_dt)
@@ -267,6 +268,8 @@ ggplot(phase_df, aes(fill=factor(phase, levels=rev(phases[1:(length(phases))])),
   scale_y_discrete(expand = c(0, 0))+
   scale_fill_brewer(guide = guide_legend(reverse = TRUE), palette="Paired")+
   theme(legend.position="left", axis.text.y=element_blank(),  axis.ticks = element_blank())
+cat(emo::ji("white_heavy_check_mark"), "8. Phase information added to data table. \n")
+
 ```
 
 
@@ -296,7 +299,7 @@ if (saveHourly){
     write.csv(df, file=here(dir_results,"Hourly_data", filename), row.names = F)
     pb$tick()
   }
-  cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished summarizing hourly data for ',nMice,' mice ')), emo::ji("mouse"))
+  cat(emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0('9. Finished summarizing hourly data for ',nMice,' mice ')), emo::ji("mouse"))
 }
 
 if (saveBinned){
@@ -312,7 +315,7 @@ for (eachid in metadata[,id]){
   pb$tick()
 }
 
-cat('\n', emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0(' Finished collapsing data into ',desired_bin,' minute bins (function = mean) for ',nMice,' mice ')), emo::ji("mouse"))
+cat('\n', emo::ji("white_heavy_check_mark"), white$bgGreen$bold(paste0('9. Finished collapsing data into ',desired_bin,' minute bins (function = mean) for ',nMice,' mice ')), emo::ji("mouse"))
 }
 
 remove(full_dt)
