@@ -387,12 +387,17 @@ for (eachMouse in abbrev_mice){
   geno <- metadata[MouseName==eachMouse, Genotype]
   sex <- metadata[MouseName==eachMouse, Sex]
   p <- ggetho(dt[xmv(MouseName)==eachMouse,], aes(y=speed, color=id)) +
-          stat_ld_annotations(height=1, alpha=0.2, outline = NA, x_limits = behavr::days(c(0,dayOfChange-1)), l_duration=behavr::hours(dayLengthOrig)) +
+    if(timeChange){
+      stat_ld_annotations(height=1, alpha=0.2, outline = NA, x_limits = behavr::days(c(0,dayOfChange-1)), l_duration=behavr::hours(dayLengthOrig)) +
                 # on top of it, a second layer that
                 # starts at day 7 thoughout day 30,
                 # and where L colour is grey
-          stat_ld_annotations(height=1, alpha=0.2, outline=NA, x_limits = behavr::days(c(dayOfChange-1,endDay-1)),l_duration=behavr::hours(dayLengthNew), phase = hours(newlightsOnTime-lightsOnTime))+
-          stat_pop_etho() +
+      stat_ld_annotations(height=1, alpha=0.2, outline=NA, x_limits = behavr::days(c(dayOfChange-1,endDay-1)),l_duration=behavr::hours(dayLengthNew), phase = hours(newlightsOnTime-lightsOnTime))
+    }
+    else{
+      stat_ld_annotations(height=1, alpha=0.2, outline = NA)
+    }
+  p <- p+stat_pop_etho() +
           scale_color_manual(values=c("blue4"))+
           ylab("Speed (meters/min)")+
           coord_cartesian(expand=FALSE)+
@@ -411,15 +416,23 @@ for (eachMouse in abbrev_mice){
 for (phase in phase_df$phase){
   dt_sub <- dt[expPhase==phase,]
   p <- ggetho(dt_sub, aes(y=speed, color=Genotype), time_wrap = days(1)) +
-  stat_ld_annotations(height=15,
+  if(timeChange){
+    stat_ld_annotations(height=15,
                               alpha=.2,
                               x_limits = c(0, behavr::days(1)),
                               outline = NA, l_duration=behavr::hours(dayLengthOrig)) +
-  stat_ld_annotations(height=15,
+    stat_ld_annotations(height=15,
                               alpha=.1,
                               x_limits = c(0, behavr::days(1)),
-                              ld_colours = c("grey", "black"), l_duration=behavr::hours(dayLengthNew), phase = hours(newlightsOnTime-lightsOnTime)) +
-  stat_pop_etho() +
+                              ld_colours = c("grey", "black"), l_duration=behavr::hours(dayLengthNew), phase = hours(newlightsOnTime-lightsOnTime))
+  }
+  else{
+    stat_ld_annotations(height=15,
+                              alpha=.2,
+                              x_limits = c(0, behavr::days(1)),
+                              outline = NA, l_duration=behavr::hours(dayLengthOrig))
+  }
+  p <- p+stat_pop_etho() +
   ylim(0,18)+
   coord_polar()+
   ggtitle(paste("Activity during", phase))
