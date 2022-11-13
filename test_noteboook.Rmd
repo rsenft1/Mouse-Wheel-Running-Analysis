@@ -111,7 +111,7 @@ dir_results <- here("results")
 dir_table_ind <- here(dir_results, "01_Individual_mice")
 dir_table_group <- here(dir_results, "02_By_Group")
 
-for(d in list(dir_doc, dir_rawData, dir_orgData,dir_data_clean,dir_figs,dir_results, dir_table_ind,dir_table_group))if(!dir.exists(d)){dir.create(d)}
+for(d in list(dir_doc, here("data"), dir_rawData, dir_orgData,dir_data_clean,dir_figs,dir_results, dir_table_ind,dir_table_group))if(!dir.exists(d)){dir.create(d)}
 options(stringsAsFactors=FALSE)
 
 #open the script log: 
