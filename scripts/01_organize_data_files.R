@@ -18,7 +18,7 @@ library(here)
 #dir_rawData <- here("data", "Raw_data") #name of folder within project directory containing the raw data files (.log) USER MUST UPDATE
 
 #1. Get names of the .log files:
-logfiles <- list.files(here(dir_rawData), pattern="*.log", full.names=FALSE)
+logfiles <- list.files(here(dir_rawData), full.names=FALSE)
 
 #2. Get names of mice from log file names
 mouseNames <- sapply(str_split(logfiles, pattern="_"), getElement,1) #names are before first underscore. Don't use underscores in the mouse IDs or this will not work

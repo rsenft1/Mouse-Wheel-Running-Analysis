@@ -62,7 +62,7 @@ cat("\n",cmark," 1.", length((.packages())), "packages loaded")
 expName <- "Exp1"           # Name for your experiment, include no spaces, just letters, numbers, and underscores
 lightsOnTime <- 7           # Time lights come ON. Default 7 = 7 AM
 lightsOffTime <- 19         # Time lights go OFF. Default 19 = 7 PM
-timeChange <- TRUE             # Was there a time change in this experiment? Default = False, no time change
+timeChange <- FALSE             # Was there a time change in this experiment? Default = False, no time change
 
 
 # If you have a time change:
@@ -71,15 +71,15 @@ dayOfChange <- 14            # What experimental day the time change occurs on (
 newlightsOnTime <- 7          # If you have a time change, what is the new lights ON time?
 newlightsOffTime <- 12         # If you have a time change, what is the new lights OFF time?
 
-# How is your header organized? 
+# How is your .log file header organized? 
 
 header <- c('MouseName', 'Date', 'StartTime', 'bin_secs', 'CageNum', 'Genotype', 'Sex')
 
 # How is your experiment organized? Name the phases of your experiment and the day each phase starts on. 
 # Phases will extend from that day up until the next start day listed or until the end of the experiment: 
 
-phases <- c("Acclimation", "12:12", "Short-day")
-phaseStart <- c(1, 4, dayOfChange)
+phases <- c("Acclimation", "PostAcclimation")
+phaseStart <- c(1, 4)
 
 # output the settings - NOTHING FURTHER TO EDIT
 dayLengthOrig <- lightsOffTime - lightsOnTime
@@ -165,6 +165,38 @@ full_metadata <- data.table(full_metadata)
 cat(cmark, "5. Finished loading ",nMice," log files ", "🐭")
 ```
 
+#### ❓Optional: Fix incorrect metadata
+
+If you'd like to change metadata in your experiment, you can do so in these two code cells. The first is designed specifically for genotype. You can replace `original_name` with whatever genotype you want to replace and `new_name` with whatever you want the new genotype to be.
+
+```{r Optional: Edit genotypes?}
+print("Here are the genotypes in your current experiment:")
+print(unique(full_metadata$Genotype))
+
+# Replace?
+full_metadata[Genotype=="original_name",Genotype:="new_name"]
+```
+
+This block will make all `Sex` values uppercase. Don't run this if you don't have a column called "Sex" in `full_metadata`
+
+```{r Optional: Edit sex}
+full_metadata$Sex <- toupper(full_metadata$Sex)
+```
+
+This block is for more intense editing of mice (e.g., you made a mistake with one mouse and need to modify it). After running this cell a popup will appear in which you can edit anything in your metadata table. Depending on the number of mice, this could be slow.
+
+```{r Optional: Edit your mice?}
+print(full_metadata)
+full_metadata <- edit(full_metadata)
+print(full_metadata)
+```
+
+Use this block to check the metadata and if necessary, you can re-run the previous code blocks.
+
+```{r Optional: Check your metadata!}
+print(full_metadata)
+```
+
 ### 🔢 Add columns to data
 
 This chunk takes your data for each mouse and adds additional variables, like speed, time of day, and experimental phase information. Data columns include:
@@ -228,7 +260,7 @@ clean_dt <-
              ),
            by=id])
 
-# remove mice that don't run 1% of the time... also have to do this earlier as well... 
+# remove mice that don't run 1% of the time... 
 removed <- clean_dt %>% group_by(id) %>% filter(moving_fraction <= 0.01) %>% pull(MouseName)
 
 full_metadata<- merge(x = full_metadata, y = clean_dt[ , c("id", "moving_fraction")], by=c("id"), all.x=TRUE)
@@ -322,6 +354,8 @@ endDay <- max(dt$expDay)
 
 ### 📈 Make graphs
 
+#### Bout analysis
+
 ```{r 10. Bout analysis, fig.width=8, echo=FALSE}
 
 # for each phase
@@ -339,10 +373,6 @@ for(phase in phases){
   phase_meta <- dt_phase[stat_bout, meta=T]
 # save table
   write.csv(phase_meta, file=here(dir_results, paste0(phaseforfilename,"_mean_bout_length.csv")))
-# compare groups
-#  group1 <- phase_meta[Genotype %in% geno1, "mean_bout_length"]
-#  group2 <- phase_meta[Genotype %in% geno2, "mean_bout_length"]
-#  report(t.test(group1, group2))
 # make figure over time, facet by sex
   g1 <- ggetho(bout_dt, aes(y=duration / 60, color=Genotype), time_wrap = hours(24)) + 
       stat_pop_etho() + 
@@ -379,6 +409,8 @@ for(phase in phases){
 
 ```
 
+#### Raw activity for each individual mouse
+
 ```{r 11. Raw activity ind., fig.width=15, fig.height=4, echo=FALSE}
 abbrev_mice <- metadata$MouseName
 for (eachMouse in abbrev_mice){
@@ -408,6 +440,8 @@ for (eachMouse in abbrev_mice){
 }
 
 ```
+
+#### Polar activity plot
 
 ```{r 12. Polar activity by genotype, echo=FALSE}
 for (phase in phase_df$phase){
@@ -469,6 +503,8 @@ ggsave("all_actograms.png", plot=p, path=dir_figs)
 
 ```
 
+#### Periodogram
+
 ```{r 14. Periodogram, echo=FALSE}
 
 for (phase in phase_df$phase){
@@ -478,6 +514,8 @@ for (phase in phase_df$phase){
                         dt_sub,
                         FUN = chi_sq_periodogram)
   per_xsq_dt <- find_peaks(per_xsq_dt)
+  write.csv(per_xsq_dt, file=here(dir_results, "Periodogram_all_mice"), row.names = FALSE)
+
   g <- ggperio(per_xsq_dt, aes(
                     y = power - signif_threshold,
                     color=Genotype)) + 
@@ -490,6 +528,8 @@ for (phase in phase_df$phase){
 
 ```
 
+#### Percent time running
+
 ```{r 15. Fraction of time running, echo=FALSE}
 hex_colors <- c("#f8766d", "#7cae00", "#00bfc4", "#c77cff")
 
@@ -499,10 +539,11 @@ for (phase in phase_df$phase){
   summary_dt <- rejoin(dt_sub[,
            .(
              # this is where the computation happens
-             phase_moving_fraction = mean(moving)
+             phase_moving_fraction = mean(moving),
+             active_moving_fraction = mean(moving[activeFactor],na.rm=TRUE),
+             inactive_moving_fraction = mean(moving[!activeFactor],na.rm=TRUE)
              ),
            by=id])
-  write.csv(summary_dt, file=here(dir_results, paste0(phaseforfilename,"_percent_time_running.csv")))
   g1 <- ggplot(summary_dt, aes(x=Sex, y=phase_moving_fraction, fill=Genotype)) + 
     geom_boxplot(outlier.colour = NA) +
     geom_point(position=position_dodge(width=0.75), aes(color=Genotype), alpha=0.5)+
@@ -523,6 +564,8 @@ for (phase in phase_df$phase){
     theme_classic()
   print(g2)
   ggsave(here(dir_figs, paste0(phaseforfilename, "_percent_time_running_byGeno.png")))
+  setnames(summary_dt, "phase_moving_fraction", paste0(phase,"_moving_fraction"))
+  write.csv(summary_dt, file=here(dir_results, paste0(phaseforfilename,"_percent_time_running.csv")))
 }
 
 ```
